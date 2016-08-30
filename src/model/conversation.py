@@ -36,21 +36,21 @@ class MessageDelivery(object):
     @coroutine
     def send_messages(self, sender, messages):
         for message in messages:
-            if any(t not in message for t in ["recipient_class", "recipient_key", "payload"]):
+            if any(t not in message for t in ["recipient_class", "recipient_key", "message_type", "payload"]):
                 raise MessageSendError(
-                    "Messages expected to be a list of {'recipient_class', 'recipient_key', 'payload'}")
+                    "Messages expected to be a list of {'recipient_class', 'recipient_key', `message_type`, 'payload'}")
 
-        yield [self.send_message(m["recipient_class"], m["recipient_key"], sender, m["payload"]) for m in messages]
+        yield [self.send_message(m["recipient_class"], m["recipient_key"], sender, m["message_type"], m["payload"]) for m in messages]
 
     @coroutine
-    def send_message(self, recipient_class, recipient_key, sender, payload):
+    def send_message(self, recipient_class, recipient_key, sender, message_type, payload):
         """
         Tries to deliver a message to recipient (recipient_class, recipient_key)
         :param recipient_class: a class of recipient (user, group, etc)
         :param recipient_key: a key in such class (account id, group id etc)
         :param sender: account id of the sender
         :param payload: a dict containing the message to be delivered
-
+        :param message_type: a kind of a message (like a subject)
         :returns whenever message was delivered, or not (in that case it's stored in a database)
         """
 
@@ -65,6 +65,7 @@ class MessageDelivery(object):
             AccountConversation.SENDER: sender,
             AccountConversation.RECIPIENT_CLASS: recipient_class,
             AccountConversation.RECIPIENT_KEY: recipient_key,
+            AccountConversation.TYPE: message_type,
             AccountConversation.PAYLOAD: payload
         })
 
@@ -118,6 +119,7 @@ class MessageDelivery(object):
             sender,
             recipient_key,
             datetime.datetime.utcnow(),
+            message_type,
             payload,
             delivered)
 
@@ -129,6 +131,7 @@ class AccountConversation(object):
     SENDER = "sndr"
     RECIPIENT_CLASS = "class"
     RECIPIENT_KEY = "key"
+    TYPE = "type"
     PAYLOAD = "payload"
 
     EXCHANGE_PREFIX = "conv"
@@ -229,6 +232,7 @@ class AccountConversation(object):
             sender = payload[AccountConversation.SENDER]
             recipient_class = payload[AccountConversation.RECIPIENT_CLASS]
             recipient_key = payload[AccountConversation.RECIPIENT_KEY]
+            message_type = payload[AccountConversation.TYPE]
             payload = payload[AccountConversation.PAYLOAD]
         except KeyError as e:
             raise ProcessError("Missing field: " + e.args[0])
@@ -237,7 +241,8 @@ class AccountConversation(object):
             raise ProcessError("Bad gamespace")
 
         if self.handler:
-            yield self.handler(gamespace_id, message_uuid, sender, recipient_class, recipient_key, payload)
+            yield self.handler(gamespace_id, message_uuid, sender, recipient_class,
+                               recipient_key, message_type, payload)
 
     def __del__(self):
         logging.info("Conversation released!")
@@ -254,13 +259,14 @@ class AccountConversation(object):
             logging.error("Failed to process incoming message: " + e.message)
 
     @coroutine
-    def send_message(self, recipient_class, recipient_key, sender, payload):
+    def send_message(self, recipient_class, recipient_key, sender, message_type, payload):
         delivery = yield self.online.delivery(self.gamespace_id)
 
         result = yield delivery.send_message(
             recipient_class,
             recipient_key,
             sender,
+            message_type,
             payload)
 
         raise Return(result)

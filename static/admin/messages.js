@@ -40,8 +40,11 @@
                     "sender": {"style": "primary", "validation": "number", "type": "text", "value": this.account,
                         "title": "From", "order": 2
                     },
+                    "message_type": {"style": "primary", "validation": "non-empty", "type": "text", "value": "debug",
+                        "title": "Type", "order": 3
+                    },
                     "message": {"style": "primary", "validation": "non-empty", "type": "json", "value": {},
-                        "title": "Message", "order": 3, "height": 200
+                        "title": "Message", "order": 4, "height": 200
                     }
                 },
                 "title": "Send a message",
@@ -61,6 +64,7 @@
                         "recipient_class": fields["recipient_class"],
                         "recipient_key": fields["recipient_key"],
                         "sender": fields["sender"],
+                        "message_type": fields["message_type"],
                         "message": fields["message"]
                     }).done(function(payload)
                     {

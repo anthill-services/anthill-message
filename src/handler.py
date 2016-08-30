@@ -3,13 +3,15 @@ import ujson
 
 from tornado.gen import coroutine, Return
 from tornado.web import HTTPError
+from tornado.ioloop import IOLoop
 
 from common.access import scoped, AccessToken
-from common.handler import AuthenticatedHandler
+from common.handler import AuthenticatedHandler, JsonRPCWSHandler
 
 from model.conversation import MessageSendError
 
 import logging
+import common
 
 
 class SubscriptionHandler(AuthenticatedHandler):
@@ -43,6 +45,60 @@ class InboxHandler(AuthenticatedHandler):
     @coroutine
     def delete(self, transport):
         pass
+
+
+class ConversationEndpointHandler(JsonRPCWSHandler):
+    def __init__(self, application, request, **kwargs):
+        super(ConversationEndpointHandler, self).__init__(application, request, **kwargs)
+        self.conversation = None
+
+    def required_scopes(self):
+        return ["message_listen"]
+
+    @coroutine
+    def prepared(self):
+        yield super(ConversationEndpointHandler, self).prepared()
+
+        online = self.application.online
+
+        account_id = common.to_int(self.token.account)
+        gamespace = self.token.get(AccessToken.GAMESPACE)
+
+        if not account_id:
+            raise HTTPError(400, "Bad account")
+
+        self.conversation = yield online.conversation(gamespace, account_id)
+        self.conversation.handle(self._message)
+
+        logging.debug("Exchange has been opened!")
+
+    @coroutine
+    def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
+        yield self.rpc(
+            self,
+            "message",
+            gamespace_id=gamespace_id,
+            message_id=message_id,
+            sender=sender,
+            recipient_class=recipient_class,
+            recipient_key=recipient_key,
+            message_type=message_type,
+            payload=payload)
+
+    @coroutine
+    def send_message(self, recipient_class, recipient_key, sender, message_type, message):
+        try:
+            payload = ujson.loads(message)
+        except (KeyError, ValueError):
+            raise HTTPError(400, "Corrupted message")
+
+        yield self.conversation.send_message(recipient_class, recipient_key, sender, message_type, payload)
+
+        raise Return("ok")
+
+    def on_close(self):
+        IOLoop.current().add_callback(self.conversation.release)
+        self.conversation = None
 
 
 class SendMessagesHandler(AuthenticatedHandler):

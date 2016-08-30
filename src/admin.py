@@ -528,10 +528,10 @@ class MessagesController(a.AdminController):
         messages = [
             {
                 "sender": message.sender,
-                "class": message.message_class,
-                "recipient": message.recipient,
+                "recipient": str(message.message_recipient_class) + " " + str(message.recipient),
                 "time": str(message.time),
                 "delivered": "yes" if message.delivered else "no",
+                "message_type": message.message_type,
                 "payload": [a.json_view(message.payload)],
                 "actions": [
                     a.button("message", "Edit", "default", message_id=message.message_id)
@@ -549,9 +549,6 @@ class MessagesController(a.AdminController):
                     "id": "sender",
                     "title": "From"
                 }, {
-                    "id": "class",
-                    "title": "Class"
-                }, {
                     "id": "recipient",
                     "title": "Recipient"
                 }, {
@@ -560,6 +557,9 @@ class MessagesController(a.AdminController):
                 }, {
                     "id": "delivered",
                     "title": "Delivered"
+                }, {
+                    "id": "message_type",
+                    "title": "Type"
                 }, {
                     "id": "payload",
                     "title": "Payload",
@@ -622,7 +622,7 @@ class MessagesStreamController(a.StreamAdminController):
         logging.debug("Exchange has been opened!")
 
     @coroutine
-    def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, payload):
+    def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
         yield self.rpc(
             self,
             "message",
@@ -631,16 +631,17 @@ class MessagesStreamController(a.StreamAdminController):
             sender=sender,
             recipient_class=recipient_class,
             recipient_key=recipient_key,
+            message_type=message_type,
             payload=payload)
 
     @coroutine
-    def send_message(self, recipient_class, recipient_key, sender, message):
+    def send_message(self, recipient_class, recipient_key, sender, message_type, message):
         try:
             payload = ujson.loads(message)
         except (KeyError, ValueError):
             raise a.StreamCommandError(400, "Corrupted message")
 
-        yield self.conversation.send_message(recipient_class, recipient_key, sender, payload)
+        yield self.conversation.send_message(recipient_class, recipient_key, sender, message_type, payload)
 
         raise Return("ok")
 

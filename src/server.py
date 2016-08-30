@@ -70,6 +70,7 @@ class MessagesServer(common.server.Server):
             (r"/inbox/(\w+)", handler.InboxHandler),
             (r"/send/(\w+)/(\w+)", handler.SendMessageHandler),
             (r"/send", handler.SendMessagesHandler),
+            (r"/listen", handler.ConversationEndpointHandler)
         ]
 
 
