@@ -69,6 +69,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
 
         self.conversation = yield online.conversation(gamespace, account_id)
         self.conversation.handle(self._message)
+        self.conversation.init()
 
         logging.debug("Exchange has been opened!")
 

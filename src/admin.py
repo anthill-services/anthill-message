@@ -528,7 +528,7 @@ class MessagesController(a.AdminController):
         messages = [
             {
                 "sender": message.sender,
-                "recipient": str(message.message_recipient_class) + " " + str(message.recipient),
+                "recipient": str(message.recipient_class) + " " + str(message.recipient),
                 "time": str(message.time),
                 "delivered": "yes" if message.delivered else "no",
                 "message_type": message.message_type,
@@ -618,6 +618,7 @@ class MessagesStreamController(a.StreamAdminController):
 
         self.conversation = yield online.conversation(self.gamespace, account_id)
         self.conversation.handle(self._message)
+        self.conversation.init()
 
         logging.debug("Exchange has been opened!")
 

@@ -192,10 +192,11 @@ class AccountConversation(object):
             for message in stored_messages:
                 yield self.handler(
                     self.gamespace_id,
-                    message.message_id,
+                    message.message_uuid,
                     message.sender,
-                    message.message_class,
+                    message.recipient_class,
                     message.recipient,
+                    message.message_type,
                     message.payload)
 
         yield self.receive_queue.consume(self.__on_message__)

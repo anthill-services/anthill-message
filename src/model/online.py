@@ -28,7 +28,6 @@ class OnlineModel(Model):
         connection = yield self.connections.get()
 
         conversation = AccountConversation(self, gamespace_id, account_id, connection)
-        yield conversation.init()
 
         raise Return(conversation)
 
