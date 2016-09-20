@@ -97,9 +97,10 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
 
         raise Return("ok")
 
-    def on_close(self):
-        IOLoop.current().add_callback(self.conversation.release)
+    @coroutine
+    def closed(self):
         self.conversation = None
+        yield self.conversation.release()
 
 
 class SendMessagesHandler(AuthenticatedHandler):
