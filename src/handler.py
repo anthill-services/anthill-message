@@ -93,14 +93,22 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         except (KeyError, ValueError):
             raise HTTPError(400, "Corrupted message")
 
-        yield self.conversation.send_message(recipient_class, recipient_key, sender, message_type, payload)
+        yield self.conversation.send_message(
+            recipient_class,
+            recipient_key,
+            sender,
+            message_type,
+            payload)
 
         raise Return("ok")
 
     @coroutine
     def closed(self):
-        self.conversation = None
+        if not self.conversation:
+            return
+
         yield self.conversation.release()
+        self.conversation = None
 
 
 class SendMessagesHandler(AuthenticatedHandler):
