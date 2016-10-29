@@ -8,12 +8,12 @@ from tornado.gen import coroutine, Return, Future
 from . import CLASS_USER, CLASS_GROUP
 
 
-class ProcessError(object):
+class ProcessError(Exception):
     def __init__(self, message):
         self.message = message
 
 
-class MessageSendError(object):
+class MessageSendError(Exception):
     def __init__(self, message):
         self.message = message
 
@@ -238,7 +238,7 @@ class AccountConversation(object):
         except KeyError as e:
             raise ProcessError("Missing field: " + e.args[0])
 
-        if gamespace_id != self.gamespace_id:
+        if str(gamespace_id) != str(self.gamespace_id):
             raise ProcessError("Bad gamespace")
 
         if self.handler:
