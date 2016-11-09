@@ -24,10 +24,7 @@ class IndexController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
 
@@ -52,10 +49,7 @@ class UsersController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -100,10 +94,7 @@ class UserController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -144,10 +135,7 @@ class GroupsController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -198,10 +186,7 @@ class FindGroupsByClassController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -228,6 +213,7 @@ class NewGroupController(a.AdminController):
             a.form(title="Create a new group", fields={
                 "group_class": a.field("Group class", "text", "primary", "non-empty", order=1),
                 "group_key": a.field("Group key", "text", "primary", "non-empty", order=2),
+                "store_messages": a.field("Store messages", "switch", "primary", "non-empty", order=3),
             }, methods={
                 "create": a.method("Create", "primary")
             }, data=data),
@@ -236,18 +222,21 @@ class NewGroupController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
+    @coroutine
+    def get(self, **context):
+        raise Return({
+            "store_messages": "true"
+        })
 
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
-    def create(self, group_class, group_key):
+    def create(self, group_class, group_key, store_messages="false"):
         groups = self.application.groups
 
         try:
-            group_id = yield groups.add_group(self.gamespace, group_class, group_key)
+            group_id = yield groups.add_group(self.gamespace, group_class, group_key, store_messages == "true")
         except GroupExistsError:
             raise a.ActionError("Such group already exists")
         except GroupError as e:
@@ -278,12 +267,8 @@ class AddGroupParticipantController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
+    def access_scopes(self):
         return ["message_admin"]
-
-    def scopes_write(self):
-        return ["message_admin"]
-
     @coroutine
     def create(self, account, role):
         groups = self.application.groups
@@ -330,10 +315,7 @@ class AddUserParticipantController(a.AdminController):
     def get(self, account):
         raise Return({})
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -382,10 +364,7 @@ class GroupParticipantController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -448,6 +427,7 @@ class GroupController(a.AdminController):
             a.form(title="Group", fields={
                 "group_class": a.field("Group class", "text", "primary", "non-empty", order=1),
                 "group_key": a.field("Group key", "text", "primary", "non-empty", order=2),
+                "store_messages": a.field("Store messages", "switch", "primary", "non-empty", order=3),
             }, methods={
                 "update": a.method("Update", "primary"),
                 "delete": a.method("Delete", "danger")
@@ -465,10 +445,7 @@ class GroupController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -490,16 +467,17 @@ class GroupController(a.AdminController):
         raise Return({
             "group_class": group.group_class,
             "group_key": group.key,
+            "store_messages": "true" if group.store_messages else "false",
             "participants": participants
         })
 
     @coroutine
-    def update(self, group_class, group_key):
+    def update(self, group_class, group_key, store_messages="false"):
         groups = self.application.groups
         group_id = self.context.get("group_id")
 
         try:
-            yield groups.update_group(self.gamespace, group_id, group_class, group_key)
+            yield groups.update_group(self.gamespace, group_id, group_class, group_key, store_messages == "true")
         except GroupError as e:
             raise a.ActionError("Failed to update a group:" + e.message)
 
@@ -576,10 +554,7 @@ class MessagesController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
@@ -602,10 +577,7 @@ class MessagesStreamController(a.StreamAdminController):
 
         self.conversation = None
 
-    def scopes_read(self):
-        return ["message_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["message_admin"]
 
     @coroutine
