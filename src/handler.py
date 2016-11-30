@@ -56,7 +56,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         return ["message_listen"]
 
     @coroutine
-    def prepared(self):
+    def prepared(self, *args, **kwargs):
         yield super(ConversationEndpointHandler, self).prepared()
 
         online = self.application.online
