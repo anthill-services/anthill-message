@@ -210,7 +210,8 @@ class AccountConversation(object):
     @coroutine
     def release(self):
 
-        yield self.receive_queue.delete()
+        if self.receive_channel:
+            yield self.receive_channel.close()
 
         self.connection = None
 
