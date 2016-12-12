@@ -202,13 +202,16 @@ class AccountConversation(object):
         yield self.receive_queue.consume(self.__on_message__)
 
         logging.debug("Conversation initialized!")
-        logging.debug("Conversation for account {0} started.".format(self.account_id))
+        logging.info("Conversation for account {0} started.".format(self.account_id))
 
     def handle(self, message_callback):
         self.handler = message_callback
 
     @coroutine
     def release(self):
+
+        if self.receive_queue:
+            yield self.receive_queue.delete()
 
         if self.receive_channel:
             yield self.receive_channel.close()
@@ -219,7 +222,7 @@ class AccountConversation(object):
         self.receive_exchange = None
         self.receive_queue = None
 
-        logging.debug("Conversation for account {0} released.".format(self.account_id))
+        logging.info("Conversation for account {0} released.".format(self.account_id))
 
     @coroutine
     def __process__(self, body):
