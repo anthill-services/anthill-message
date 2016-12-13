@@ -83,7 +83,7 @@ class MessagesHistoryModel(Model):
         raise Return(map(MessageAdapter, messages))
 
     @coroutine
-    def read_incoming_messages(self, gamespace, recipient_class, recipient):
+    def read_incoming_messages(self, gamespace, recipient_class, recipient, receiver):
         try:
             with (yield self.db.acquire(auto_commit=False)) as db:
                 messages = yield db.query(
@@ -95,23 +95,26 @@ class MessagesHistoryModel(Model):
                         FOR UPDATE;
                     """, recipient_class, recipient, gamespace)
 
-                message_ids = [m["message_id"] for m in messages]
+                received_ids = []
 
-                if message_ids:
+                for m in map(MessageAdapter, messages):
+                    recv = yield receiver(m)
+                    if recv:
+                        received_ids.append(m.message_id)
+
+                if received_ids:
                     yield db.query(
                         """
                             UPDATE `messages`
                             SET `message_delivered`=1
                             WHERE `gamespace_id`=%s AND `message_id` IN %s;
-                        """, gamespace, message_ids
+                        """, gamespace, received_ids
                     )
 
                 yield db.commit()
 
         except DatabaseError as e:
-            raise MessageError("Failed to list incoming messages: " + e.args[1])
-
-        raise Return(map(MessageAdapter, messages))
+            raise MessageError("Failed to read incoming messages: " + e.args[1])
 
     @coroutine
     def list_paged_incoming_messages(self, gamespace, recipient_class, recipient, items_in_page, page):

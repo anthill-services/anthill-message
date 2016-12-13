@@ -7,6 +7,7 @@ from tornado.ioloop import IOLoop
 
 from common.access import scoped, AccessToken
 from common.handler import AuthenticatedHandler, JsonRPCWSHandler
+from common.jsonrpc import JsonRPCError
 
 from model.conversation import MessageSendError
 
@@ -56,9 +57,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         return ["message_listen"]
 
     @coroutine
-    def prepared(self, *args, **kwargs):
-        yield super(ConversationEndpointHandler, self).prepared()
-
+    def opened(self, *args, **kwargs):
         online = self.application.online
 
         account_id = common.to_int(self.token.account)
@@ -75,16 +74,21 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
 
     @coroutine
     def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
-        yield self.rpc(
-            self,
-            "message",
-            gamespace_id=gamespace_id,
-            message_id=message_id,
-            sender=sender,
-            recipient_class=recipient_class,
-            recipient_key=recipient_key,
-            message_type=message_type,
-            payload=payload)
+        try:
+            yield self.rpc(
+                self,
+                "message",
+                gamespace_id=gamespace_id,
+                message_id=message_id,
+                sender=sender,
+                recipient_class=recipient_class,
+                recipient_key=recipient_key,
+                message_type=message_type,
+                payload=payload)
+        except JsonRPCError as e:
+            raise Return(False)
+
+        raise Return(True)
 
     @coroutine
     def send_message(self, recipient_class, recipient_key, sender, message_type, message):

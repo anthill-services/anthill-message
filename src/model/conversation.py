@@ -186,18 +186,21 @@ class AccountConversation(object):
 
             yield self.receive_exchange.bind(exchange=group_exchange)
 
-        stored_messages = yield history.read_incoming_messages(self.gamespace_id, CLASS_USER, self.account_id)
+        @coroutine
+        def receiver(m):
+            result = yield self.handler(
+                self.gamespace_id,
+                m.message_uuid,
+                m.sender,
+                m.recipient_class,
+                m.recipient,
+                m.message_type,
+                m.payload)
 
-        if self.handler:
-            for message in stored_messages:
-                yield self.handler(
-                    self.gamespace_id,
-                    message.message_uuid,
-                    message.sender,
-                    message.recipient_class,
-                    message.recipient,
-                    message.message_type,
-                    message.payload)
+            raise Return(result)
+
+        yield history.read_incoming_messages(
+            self.gamespace_id, CLASS_USER, self.account_id, receiver)
 
         yield self.receive_queue.consume(self.__on_message__)
 
