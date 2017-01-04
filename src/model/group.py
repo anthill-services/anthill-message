@@ -43,7 +43,7 @@ class GroupsModel(Model):
         self.history = history
 
     def get_setup_tables(self):
-        return ["groups", "group_participants"]
+        return ["groups", "group_participants", "group_clusters", "group_cluster_accounts"]
 
     def get_setup_db(self):
         return self.db
