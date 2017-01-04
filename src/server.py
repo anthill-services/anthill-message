@@ -50,7 +50,8 @@ class MessagesServer(common.server.Server):
             "add_group_participation": a.AddGroupParticipantController,
             "add_user_participation": a.AddUserParticipantController,
             "user": a.UserController,
-            "messages": a.MessagesController
+            "messages": a.MessagesController,
+            "history": a.MessagesHistoryController
         }
 
     def get_models(self):
@@ -66,8 +67,8 @@ class MessagesServer(common.server.Server):
 
     def get_handlers(self):
         return [
-            (r"/subscription/(\w+)", handler.SubscriptionHandler),
-            (r"/inbox/(\w+)", handler.InboxHandler),
+            (r"/group/(\w+)/(.*)/join", handler.JoinGroupHandler),
+            (r"/group/(\w+)/(.*)", handler.ReadGroupInboxHandler),
             (r"/send/(\w+)/(\w+)", handler.SendMessageHandler),
             (r"/send", handler.SendMessagesHandler),
             (r"/listen", handler.ConversationEndpointHandler)

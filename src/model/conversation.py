@@ -5,6 +5,7 @@ import datetime
 import uuid
 
 from tornado.gen import coroutine, Return, Future
+from group import GroupsModel
 from . import CLASS_USER, CLASS_GROUP
 
 
@@ -40,7 +41,15 @@ class MessageDelivery(object):
                 raise MessageSendError(
                     "Messages expected to be a list of {'recipient_class', 'recipient_key', `message_type`, 'payload'}")
 
-        yield [self.send_message(m["recipient_class"], m["recipient_key"], sender, m["message_type"], m["payload"]) for m in messages]
+        yield [
+            self.send_message(
+                m["recipient_class"],
+                m["recipient_key"],
+                sender,
+                m["message_type"],
+                m["payload"])
+            for m in messages
+        ]
 
     @coroutine
     def send_message(self, recipient_class, recipient_key, sender, message_type, payload):
@@ -145,7 +154,7 @@ class AccountConversation(object):
         self.online = online
 
         self.gamespace_id = gamespace_id
-        self.account_id = account_id
+        self.account_id = str(account_id)
         self.connection = connection
 
         self.receive_channel = None
@@ -176,9 +185,9 @@ class AccountConversation(object):
         groups = self.online.groups
         history = self.online.history
 
-        account_groups = yield groups.list_group_ids_account_participates(self.gamespace_id, self.account_id)
-        for account_group in account_groups:
-            exchange_name = AccountConversation.__id__(CLASS_GROUP, account_group)
+        participants = yield groups.list_participants_by_account(self.gamespace_id, self.account_id)
+        for participant in participants:
+            exchange_name = AccountConversation.__id__(CLASS_GROUP, GroupsModel.calculate_recipient(participant))
             group_exchange = yield self.receive_channel.exchange(
                 exchange=exchange_name,
                 exchange_type='fanout',
@@ -204,7 +213,6 @@ class AccountConversation(object):
 
         yield self.receive_queue.consume(self.__on_message__)
 
-        logging.debug("Conversation initialized!")
         logging.info("Conversation for account {0} started.".format(self.account_id))
 
     def handle(self, message_callback):

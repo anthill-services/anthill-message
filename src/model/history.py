@@ -6,6 +6,14 @@ from common.database import DatabaseError
 import ujson
 
 
+class MessageQueryError(Exception):
+    def __init__(self, message):
+        self.message = message
+
+    def __str__(self):
+        return self.message
+
+
 class MessageAdapter(object):
     def __init__(self, data):
         self.message_id = data.get("message_id")
@@ -19,6 +27,108 @@ class MessageAdapter(object):
         self.delivered = data.get("message_delivered")
 
 
+class MessagesQuery(object):
+    def __init__(self, gamespace_id, db):
+        self.gamespace_id = gamespace_id
+        self.db = db
+
+        self.message_sender = None
+        self.message_recipient_class = None
+        self.message_recipient = None
+        self.message_type = None
+        self.message_delivered = None
+
+        self.offset = 0
+        self.limit = 0
+
+    def __values__(self):
+        conditions = [
+            "`gamespace_id`=%s"
+        ]
+
+        data = [
+            str(self.gamespace_id)
+        ]
+
+        if self.message_sender:
+            conditions.append("`message_sender`=%s")
+            data.append(str(self.message_sender))
+
+        if self.message_recipient_class:
+            conditions.append("`message_recipient_class`=%s")
+            data.append(str(self.message_recipient_class))
+
+        if self.message_recipient:
+            conditions.append("`message_recipient` LIKE %s")
+            data.append(self.message_recipient)
+
+        if self.message_type:
+            conditions.append("`message_type`=%s")
+            data.append(str(self.message_type))
+
+        if self.message_delivered is not None:
+            conditions.append("`message_delivered`=%s")
+            data.append(str(int(bool(self.message_delivered))))
+
+        return conditions, data
+
+    @coroutine
+    def query(self, one=False, count=False):
+        conditions, data = self.__values__()
+
+        query = """
+            SELECT {0} * FROM `messages`
+            WHERE {1}
+        """.format(
+            "SQL_CALC_FOUND_ROWS" if count else "",
+            " AND ".join(conditions))
+
+        query += """
+            ORDER BY `message_time` DESC
+        """
+
+        if self.limit:
+            query += """
+                LIMIT %s,%s
+            """
+            data.append(int(self.offset))
+            data.append(int(self.limit))
+
+        query += ";"
+
+        if one:
+            try:
+                result = yield self.db.get(query, *data)
+            except DatabaseError as e:
+                raise MessageQueryError("Failed to add message: " + e.args[1])
+
+            if not result:
+                raise Return(None)
+
+            raise Return(MessageAdapter(result))
+        else:
+            try:
+                result = yield self.db.query(query, *data)
+            except DatabaseError as e:
+                raise MessageQueryError("Failed to add message: " + e.args[1])
+
+            count_result = 0
+
+            if count:
+                count_result = yield self.db.get(
+                    """
+                        SELECT FOUND_ROWS() AS count;
+                    """)
+                count_result = count_result["count"]
+
+            items = map(MessageAdapter, result)
+
+            if count:
+                raise Return((items, count_result))
+
+            raise Return(items)
+
+
 class MessagesHistoryModel(Model):
 
     def __init__(self, db):
@@ -29,6 +139,9 @@ class MessagesHistoryModel(Model):
 
     def get_setup_db(self):
         return self.db
+
+    def messages_query(self, gamespace):
+        return MessagesQuery(gamespace, self.db)
 
     @coroutine
     def add_message(self, gamespace, message_uuid, recipient_class,
@@ -69,14 +182,16 @@ class MessagesHistoryModel(Model):
         raise Return(MessageAdapter(message))
 
     @coroutine
-    def list_incoming_messages(self, gamespace, recipient_class, recipient):
+    def list_incoming_messages(self, gamespace, recipient_class, recipient, limit=100):
         try:
             messages = yield self.db.query(
                 """
                     SELECT *
                     FROM `messages`
-                    WHERE `message_recipient_class`=%s AND `message_recipient`=%s AND `gamespace_id`=%s;
-                """, recipient_class, recipient, gamespace)
+                    WHERE `message_recipient_class`=%s AND `message_recipient`=%s AND `gamespace_id`=%s
+                    ORDER BY `message_time` DESC
+                    LIMIT %s;
+                """, recipient_class, recipient, gamespace, limit)
         except DatabaseError as e:
             raise MessageError("Failed to list incoming messages: " + e.args[1])
 
@@ -115,51 +230,6 @@ class MessagesHistoryModel(Model):
 
         except DatabaseError as e:
             raise MessageError("Failed to read incoming messages: " + e.args[1])
-
-    @coroutine
-    def list_paged_incoming_messages(self, gamespace, recipient_class, recipient, items_in_page, page):
-        try:
-            with (yield self.db.acquire()) as db:
-                pages_count = yield db.get("""
-                    SELECT COUNT(*) as `count`
-                    FROM `messages`
-                    WHERE `message_recipient_class`=%s AND `message_recipient`=%s AND `gamespace_id`=%s;
-                """, recipient_class, recipient, gamespace)
-
-                import math
-                pages = int(math.ceil(float(pages_count["count"]) / float(items_in_page)))
-
-                limit_a = (page - 1) * items_in_page
-                limit_b = page * items_in_page
-
-                messages = yield db.query(
-                    """
-                        SELECT *
-                        FROM `messages`
-                        WHERE `message_recipient_class`=%s AND `message_recipient`=%s AND `gamespace_id`=%s
-                        ORDER BY `message_time` ASC
-                        LIMIT %s, %s;
-                    """, recipient_class, recipient, gamespace, limit_a, limit_b)
-        except DatabaseError as e:
-            raise MessageError("Failed to list incoming messages: " + e.args[1])
-
-        result = map(MessageAdapter, messages), pages
-
-        raise Return(result)
-
-    @coroutine
-    def list_outgoing_messages(self, gamespace, recipient_class, sender):
-        try:
-            messages = yield self.db.query(
-                """
-                    SELECT *
-                    FROM `messages`
-                    WHERE `message_recipient_class`=%s AND `message_sender`=%s AND `gamespace_id`=%s;
-                """, recipient_class, sender, gamespace)
-        except DatabaseError as e:
-            raise MessageError("Failed to list outgoing messages: " + e.args[1])
-
-        raise Return(map(MessageAdapter, messages))
 
     @coroutine
     def delete_messages(self, gamespace, recipient_class, recipient):

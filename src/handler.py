@@ -10,42 +10,95 @@ from common.handler import AuthenticatedHandler, JsonRPCWSHandler
 from common.jsonrpc import JsonRPCError
 
 from model.conversation import MessageSendError
+from model.group import GroupParticipantNotFound, GroupNotFound, GroupsModel, GroupError, UserAlreadyJoined
+from model.history import MessageQueryError
+from model import CLASS_GROUP
 
 import logging
 import common
 
 
-class SubscriptionHandler(AuthenticatedHandler):
+class ReadGroupInboxHandler(AuthenticatedHandler):
     @scoped()
     @coroutine
-    def get(self, transport):
-        subscriptions = []
+    def get(self, group_class, group_key):
+        groups = self.application.groups
+        history = self.application.history
 
-        self.dumps(subscriptions)
+        limit = common.to_int(self.get_argument("limit", 100))
 
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        try:
+            group = yield groups.find_group_with_participation(
+                gamespace_id, group_class, group_key, account_id)
+        except GroupParticipantNotFound:
+            raise HTTPError(406, "Account is not joined in that group")
+        except GroupNotFound:
+            raise HTTPError(404, "No such group")
+
+        message_recipient_class = CLASS_GROUP
+        message_recipient = GroupsModel.calculate_recipient(group)
+        message_type = self.get_argument("type", None)
+
+        q = history.messages_query(gamespace_id)
+
+        q.message_recipient_class = message_recipient_class
+        q.message_recipient = message_recipient
+
+        if message_type:
+            q.message_type = message_type
+
+        q.limit = limit
+
+        try:
+            messages, count = yield q.query(count=True)
+        except MessageQueryError as e:
+            raise HTTPError(500, e.message)
+
+        self.dumps({
+            "reply-to-class": message_recipient_class,
+            "reply-to": message_recipient,
+            "total-count": count,
+            "messages": [
+                {
+                    "uuid": message.message_uuid,
+                    "recipient_class": message.recipient_class,
+                    "sender": message.sender,
+                    "recipient": message.recipient,
+                    "time": str(message.time),
+                    "type": message.message_type,
+                    "payload": message.payload
+                }
+                for message in reversed(messages)
+            ]
+        })
+
+
+class JoinGroupHandler(AuthenticatedHandler):
     @scoped()
     @coroutine
-    def post(self, transport):
-        pass
+    def post(self, group_class, group_key):
+        groups = self.application.groups
+        history = self.application.history
 
-    @scoped()
-    @coroutine
-    def delete(self, transport):
-        pass
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
+        try:
+            group = yield groups.find_group(gamespace_id, group_class, group_key)
+        except GroupNotFound:
+            raise HTTPError(404, "No such group")
 
-class InboxHandler(AuthenticatedHandler):
-    @scoped()
-    @coroutine
-    def get(self, transport):
-        inbox = []
+        role = self.get_argument("role")
 
-        self.dumps(inbox)
-
-    @scoped()
-    @coroutine
-    def delete(self, transport):
-        pass
+        try:
+            yield groups.join_group(gamespace_id, group, account_id, role)
+        except GroupError as e:
+            raise HTTPError(400, e.message)
+        except UserAlreadyJoined:
+            raise HTTPError(409, "User already joined")
 
 
 class ConversationEndpointHandler(JsonRPCWSHandler):

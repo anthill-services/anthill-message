@@ -53,3 +53,9 @@ define("message_broker_max_connections",
        help="Maximum connections to maintain.",
        group="message",
        type=int)
+
+define("group_cluster_size",
+       default=1000,
+       type=int,
+       group="groups",
+       help="Cluster size to group users groups around")
