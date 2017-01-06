@@ -126,7 +126,10 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         logging.debug("Exchange has been opened!")
 
     @coroutine
-    def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
+    def _message(self, gamespace_id, message_id, recipient_class, recipient_key, message_type, payload):
+
+        sender = str(self.token.account)
+
         try:
             yield self.rpc(
                 self,
