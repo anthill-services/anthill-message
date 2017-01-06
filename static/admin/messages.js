@@ -66,9 +66,6 @@
                     "recipient_key": {"style": "primary", "validation": "non-empty", "type": "text", "value": null,
                         "title": "Recipient Key", "order": 1
                     },
-                    "sender": {"style": "primary", "validation": "number", "type": "text", "value": this.account,
-                        "title": "From", "order": 2
-                    },
                     "message_type": {"style": "primary", "validation": "non-empty", "type": "text", "value": "debug",
                         "title": "Type", "order": 3
                     },
@@ -92,7 +89,6 @@
                     zis.ws.request("send_message", {
                         "recipient_class": fields["recipient_class"],
                         "recipient_key": fields["recipient_key"],
-                        "sender": fields["sender"],
                         "message_type": fields["message_type"],
                         "message": fields["message"]
                     }).done(function(payload)

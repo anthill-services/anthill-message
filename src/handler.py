@@ -144,11 +144,13 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         raise Return(True)
 
     @coroutine
-    def send_message(self, recipient_class, recipient_key, sender, message_type, message):
+    def send_message(self, recipient_class, recipient_key, message_type, message):
         try:
             payload = ujson.loads(message)
         except (KeyError, ValueError):
-            raise HTTPError(400, "Corrupted message")
+            raise JsonRPCError(400, "Corrupted message")
+
+        sender = str(self.token.account)
 
         yield self.conversation.send_message(
             recipient_class,
