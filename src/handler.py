@@ -94,11 +94,19 @@ class JoinGroupHandler(AuthenticatedHandler):
         role = self.get_argument("role")
 
         try:
-            yield groups.join_group(gamespace_id, group, account_id, role)
+            participation = yield groups.join_group(gamespace_id, group, account_id, role)
         except GroupError as e:
             raise HTTPError(400, e.message)
         except UserAlreadyJoined:
             raise HTTPError(409, "User already joined")
+
+        message_recipient_class = CLASS_GROUP
+        message_recipient = GroupsModel.calculate_recipient(participation)
+
+        self.dumps({
+            "reply-to-class": message_recipient_class,
+            "reply-to": message_recipient
+        })
 
 
 class ConversationEndpointHandler(JsonRPCWSHandler):

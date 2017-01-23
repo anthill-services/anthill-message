@@ -210,7 +210,15 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError("Failed to join a group: " + e.args[1])
 
-        raise Return(participation_id)
+        participation = GroupParticipationAdapter({
+            "participation_id": participation_id,
+            "group_id": group_id,
+            "cluster_id": cluster_id,
+            "account": account,
+            "role": role
+        })
+
+        raise Return(participation)
 
     @coroutine
     def get_group_participation(self, gamespace, participation_id):

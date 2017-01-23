@@ -295,7 +295,7 @@ class AddGroupParticipantController(a.AdminController):
             raise a.ActionError("No such group")
 
         try:
-            participation_id = yield groups.join_group(self.gamespace, group, account, role)
+            participation = yield groups.join_group(self.gamespace, group, account, role)
         except UserAlreadyJoined:
             raise a.ActionError("Such user is already in a group")
         except GroupError as e:
@@ -344,7 +344,7 @@ class AddUserParticipantController(a.AdminController):
             raise a.ActionError("No such group")
 
         try:
-            participation_id = yield groups.join_group(self.gamespace, group, account, role)
+            participation = yield groups.join_group(self.gamespace, group, account, role)
         except UserAlreadyJoined:
             raise a.ActionError("Such user is already in a group")
         except GroupError as e:
