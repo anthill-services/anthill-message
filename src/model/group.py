@@ -41,6 +41,7 @@ class GroupsModel(Model):
         self.cluster = Cluster(db, "group_clusters", "group_cluster_accounts")
         self.cluster_size = options.group_cluster_size
         self.history = history
+        self.online = None
 
     def get_setup_tables(self):
         return ["groups", "group_participants", "group_clusters", "group_cluster_accounts"]
@@ -217,6 +218,8 @@ class GroupsModel(Model):
             "account": account,
             "role": role
         })
+
+        yield self.online.bind_account_to_group(account, participation)
 
         raise Return(participation)
 

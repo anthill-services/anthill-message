@@ -81,7 +81,6 @@ class JoinGroupHandler(AuthenticatedHandler):
     @coroutine
     def post(self, group_class, group_key):
         groups = self.application.groups
-        history = self.application.history
 
         account_id = self.token.account
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
