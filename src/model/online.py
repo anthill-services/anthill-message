@@ -25,6 +25,8 @@ class OnlineModel(Model):
         self.groups = groups
         self.history = history
 
+        self.groups.online = self
+
         self.connections = common.rabbitconn.RabbitMQConnectionPool(
             options.message_broker,
             options.message_broker_max_connections)

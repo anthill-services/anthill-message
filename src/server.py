@@ -30,7 +30,6 @@ class MessagesServer(common.server.Server):
         self.history = MessagesHistoryModel(self.db)
         self.groups = GroupsModel(self.db, self.history)
         self.online = OnlineModel(self.groups, self.history)
-        self.groups.online = self.online
 
     def get_metadata(self):
         return {
