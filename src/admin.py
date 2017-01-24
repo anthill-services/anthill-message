@@ -1,6 +1,7 @@
 
 import common.admin as a
 from common.internal import Internal, InternalError
+from common.validate import validate
 from common import to_int
 
 from common.access import AccessToken
@@ -101,6 +102,7 @@ class UserController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
+    @validate(account="int")
     def get(self, account):
 
         groups = self.application.groups
@@ -142,6 +144,7 @@ class GroupsController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
+    @validate(group_id="int")
     def search_id(self, group_id):
 
         groups = self.application.groups
@@ -156,6 +159,7 @@ class GroupsController(a.AdminController):
         raise a.Redirect("group", group_id=group.group_id)
 
     @coroutine
+    @validate(group_class="str", group_key="str_or_none")
     def search_class(self, group_class, group_key=None):
 
         if not group_key:
@@ -193,6 +197,7 @@ class FindGroupsByClassController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
+    @validate(group_class="str")
     def get(self, group_class):
 
         groups = self.application.groups
@@ -239,7 +244,8 @@ class NewGroupController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
-    def create(self, group_class, group_key, store_messages="false", clustered="false", cluster_size=1000):
+    @validate(group_class="str", group_key="str", cluster_size="int", store_messages="bool", clustered="bool")
+    def create(self, group_class, group_key, cluster_size, store_messages=False, clustered=False):
         groups = self.application.groups
 
         try:
@@ -247,8 +253,8 @@ class NewGroupController(a.AdminController):
                 self.gamespace,
                 group_class,
                 group_key,
-                store_messages == "true",
-                clustered == "true",
+                store_messages,
+                clustered,
                 cluster_size)
         except GroupExistsError:
             raise a.ActionError("Such group already exists")
@@ -284,6 +290,7 @@ class AddGroupParticipantController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
+    @validate(account="int", role="str_name")
     def create(self, account, role):
         groups = self.application.groups
 
@@ -333,6 +340,7 @@ class AddUserParticipantController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
+    @validate(group_id="int", role="str_name")
     def create(self, group_id, role):
         groups = self.application.groups
 
@@ -382,6 +390,7 @@ class GroupParticipantController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
+    @validate(participation_id="int")
     def get(self, participation_id):
         groups = self.application.groups
 
@@ -397,6 +406,7 @@ class GroupParticipantController(a.AdminController):
         })
 
     @coroutine
+    @validate(role="str_name")
     def update(self, role, **ignored):
         groups = self.application.groups
         participation_id = self.context.get("participation_id")
@@ -469,6 +479,7 @@ class GroupController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
+    @validate(group_id="int")
     def get(self, group_id):
         groups = self.application.groups
 
@@ -494,7 +505,8 @@ class GroupController(a.AdminController):
         })
 
     @coroutine
-    def update(self, group_class, group_key, store_messages="false", cluster_size=1000, **ignored):
+    @validate(group_class="str", group_key="str", cluster_size="int", store_messages="bool")
+    def update(self, group_class, group_key, cluster_size, store_messages=False, **ignored):
         groups = self.application.groups
         group_id = self.context.get("group_id")
 
@@ -504,7 +516,7 @@ class GroupController(a.AdminController):
                 group_id,
                 group_class,
                 group_key,
-                store_messages == "true",
+                store_messages,
                 cluster_size)
         except GroupError as e:
             raise a.ActionError("Failed to update a group:" + e.message)
@@ -587,13 +599,9 @@ class MessagesStreamController(a.StreamAdminController):
             payload=payload)
 
     @coroutine
+    @validate(recipient_class="str", recipient_key="str", sender="int", message_type="str", message="load_json")
     def send_message(self, recipient_class, recipient_key, sender, message_type, message):
-        try:
-            payload = ujson.loads(message)
-        except (KeyError, ValueError):
-            raise a.StreamCommandError(400, "Corrupted message")
-
-        yield self.conversation.send_message(recipient_class, recipient_key, sender, message_type, payload)
+        yield self.conversation.send_message(recipient_class, recipient_key, sender, message_type, message)
 
         raise Return("ok")
 
@@ -691,6 +699,8 @@ class MessagesHistoryController(a.AdminController):
         raise a.Redirect("history", **filters)
 
     @coroutine
+    @validate(page="int", message_sender="int", message_recipient_class="str", message_recipient="str",
+              message_type="str", message_delivered="int")
     def get(self,
             page=1,
             message_sender=None,

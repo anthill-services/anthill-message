@@ -8,6 +8,7 @@ from tornado.ioloop import IOLoop
 from common.access import scoped, AccessToken
 from common.handler import AuthenticatedHandler, JsonRPCWSHandler
 from common.jsonrpc import JsonRPCError
+from common.validate import validate
 
 from model.conversation import MessageSendError
 from model.group import GroupParticipantNotFound, GroupNotFound, GroupsModel, GroupError, UserAlreadyJoined
@@ -152,6 +153,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         raise Return(True)
 
     @coroutine
+    @validate(recipient_class="str", recipient_key="str", message_type="str", message="json_dict")
     def send_message(self, recipient_class, recipient_key, message_type, message):
         
         sender = str(self.token.account)
