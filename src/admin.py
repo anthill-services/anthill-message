@@ -49,7 +49,7 @@ class UsersController(a.AdminController):
                 }, data=data)
             ]),
             a.links("Navigate", [
-                a.link("index", "Go back")
+                a.link("index", "Go back", icon="chevron-left")
             ])
         ]
 
@@ -92,7 +92,7 @@ class UserController(a.AdminController):
                 for group in data["user_groups"]
             ]),
             a.links("Navigate", [
-                a.link("users", "Go back"),
+                a.link("users", "Go back", icon="chevron-left"),
                 a.link("add_user_participation", "Join a Group", icon="plus", account=self.context.get("account")),
                 a.link("messages", "Read / Write messages", icon="pencil", account=self.context.get("account"))
             ])
@@ -135,7 +135,7 @@ class GroupsController(a.AdminController):
                 }, data=data)
             ]),
             a.links("Navigate", [
-                a.link("users", "Go back"),
+                a.link("users", "Go back", icon="chevron-left"),
                 a.link("new_group", "Add a group", icon="plus")
             ])
         ]
@@ -188,7 +188,7 @@ class FindGroupsByClassController(a.AdminController):
                 for group in data["groups"]
             ]),
             a.links("Navigate", [
-                a.link("groups", "Go back"),
+                a.link("groups", "Go back", icon="chevron-left"),
                 a.link("new_group", "Add a group", icon="plus")
             ])
         ]
@@ -228,7 +228,7 @@ class NewGroupController(a.AdminController):
                 "create": a.method("Create", "primary")
             }, data=data),
             a.links("Navigate", [
-                a.link("groups", "Go back")
+                a.link("groups", "Go back", icon="chevron-left")
             ])
         ]
 
@@ -282,7 +282,7 @@ class AddGroupParticipantController(a.AdminController):
                 "create": a.method("Create", "primary")
             }, data=data),
             a.links("Navigate", [
-                a.link("groups", "Go back")
+                a.link("groups", "Go back", icon="chevron-left")
             ])
         ]
 
@@ -328,7 +328,7 @@ class AddUserParticipantController(a.AdminController):
                 "create": a.method("Create", "primary")
             }, data=data),
             a.links("Navigate", [
-                a.link("groups", "Go back")
+                a.link("groups", "Go back", icon="chevron-left")
             ])
         ]
 
@@ -382,7 +382,7 @@ class GroupParticipantController(a.AdminController):
                 "leave": a.method("Leave a group", "primary", order=2)
             }, data=data),
             a.links("Navigate", [
-                a.link("group", "Go back", group_id=participation.group_id)
+                a.link("group", "Go back", icon="chevron-left", group_id=participation.group_id)
             ])
         ]
 
@@ -466,7 +466,7 @@ class GroupController(a.AdminController):
                 a.link("add_group_participation", "New participant", icon="plus", group_id=self.context.get("group_id"))
             ]),
             a.links("Navigate", [
-                a.link("groups", "Go back"),
+                a.link("groups", "Go back", icon="chevron-left"),
                 a.link("history", "See messages in the group", icon="history",
                        message_recipient_class="group",
                        message_recipient=str(self.context.get("group_id")) + "-%"),
@@ -550,7 +550,7 @@ class MessagesController(a.AdminController):
             a.script("static/admin/messages.js",
                      account=self.context.get("account")),
             a.links("Navigate", [
-                a.link("users", "Go back"),
+                a.link("users", "Go back", icon="chevron-left"),
                 a.link("history", "Incoming Messages History", icon="download",
                        message_recipient_class="user", message_recipient=self.context.get("account")),
                 a.link("history", "Outgoing Messages History", icon="upload",
@@ -676,7 +676,7 @@ class MessagesHistoryController(a.AdminController):
                 "filter": a.method("Filter", "primary")
             }, data=data, icon="filter"),
             a.links("Navigate", [
-                a.link("index", "Go back")
+                a.link("index", "Go back", icon="chevron-left")
             ])
         ]
 
