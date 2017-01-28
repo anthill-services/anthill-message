@@ -699,8 +699,8 @@ class MessagesHistoryController(a.AdminController):
         raise a.Redirect("history", **filters)
 
     @coroutine
-    @validate(page="int", message_sender="int", message_recipient_class="str", message_recipient="str",
-              message_type="str", message_delivered="int")
+    @validate(page="int", message_sender="int_or_none", message_recipient_class="str_or_none",
+              message_recipient="str_or_none", message_type="str_or_none", message_delivered="int_or_none")
     def get(self,
             page=1,
             message_sender=None,
