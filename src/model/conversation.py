@@ -225,7 +225,10 @@ class AccountConversation(object):
             yield self.receive_queue.delete()
 
         if self.receive_channel:
-            yield self.receive_channel.close()
+            try:
+                yield self.receive_channel.close()
+            except:
+                pass # well
 
         self.connection = None
 
