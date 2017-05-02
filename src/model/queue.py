@@ -52,12 +52,7 @@ class MessagesQueueModel(Model):
 
             yield self.channel.basic_qos(prefetch_count=self.message_prefetch_count)
 
-            self.exchange = yield self.channel.exchange(
-                exchange=self.message_incoming_queue_name,
-                exchange_type='fanout')
-
-            self.queue = yield self.channel.queue(exclusive=True, durable=True)
-            yield self.queue.bind(exchange=self.exchange)
+            self.queue = yield self.channel.queue(queue=self.message_incoming_queue_name, durable=True)
             yield self.queue.consume(self.__on_message__)
 
             self.callback_queue = yield self.channel.queue(exclusive=True)
@@ -295,8 +290,8 @@ class MessagesQueueModel(Model):
 
                 try:
                     yield channel.basic_publish(
-                        self.message_incoming_queue_name,
                         '',
+                        self.message_incoming_queue_name,
                         body,
                         mandatory=True,
                         properties=properties)
@@ -399,8 +394,8 @@ class MessagesQueueModel(Model):
             yield channel.add_on_close_callback(closed)
 
             yield channel.basic_publish(
-                self.message_incoming_queue_name,
                 '',
+                self.message_incoming_queue_name,
                 body,
                 mandatory=True,
                 properties=properties)
