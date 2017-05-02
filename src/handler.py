@@ -10,10 +10,9 @@ from common.handler import AuthenticatedHandler, JsonRPCWSHandler
 from common.jsonrpc import JsonRPCError
 from common.validate import validate
 
-from model.conversation import MessageSendError
 from model.group import GroupParticipantNotFound, GroupNotFound, GroupsModel, GroupError, UserAlreadyJoined
 from model.history import MessageQueryError
-from model import CLASS_GROUP
+from model import CLASS_GROUP, MessageSendError
 
 import logging
 import common
@@ -152,20 +151,23 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
 
         raise Return(True)
 
-    @coroutine
-    @validate(recipient_class="str", recipient_key="str", message_type="str", message="json_dict")
-    def send_message(self, recipient_class, recipient_key, message_type, message):
+    @validate(recipient_class="str", recipient_key="str", message_type="str", message="json_dict",
+              flags="json_list_of_strings")
+    def send_message(self, recipient_class, recipient_key, message_type, message, flags):
         
         sender = str(self.token.account)
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
-        yield self.conversation.send_message(
+        message_queue = self.application.message_queue
+
+        return message_queue.add_message(
+            gamespace_id,
+            sender,
             recipient_class,
             recipient_key,
-            sender,
             message_type,
-            message)
-
-        raise Return("ok")
+            message,
+            flags)
 
     @coroutine
     def closed(self):
@@ -180,11 +182,9 @@ class SendMessagesHandler(AuthenticatedHandler):
     @scoped()
     @coroutine
     def post(self):
-        online = self.application.online
+        message_queue = self.application.message_queue
 
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
-
-        delivery = yield online.delivery(gamespace_id)
 
         try:
             messages = ujson.loads(self.get_argument("messages"))
@@ -192,7 +192,7 @@ class SendMessagesHandler(AuthenticatedHandler):
             raise HTTPError(400, "Corrupted messages")
 
         try:
-            yield delivery.send_messages(self.token.account, messages)
+            yield message_queue.add_messages(gamespace_id, self.token.account, messages)
         except MessageSendError as e:
             raise HTTPError(400, "Failed to deliver a message: " + e.message)
 
@@ -201,11 +201,9 @@ class SendMessageHandler(AuthenticatedHandler):
     @scoped()
     @coroutine
     def post(self, recipient_class, recipient_key):
-        online = self.application.online
-
+        message_queue = self.application.message_queue
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
-
-        delivery = yield online.delivery(gamespace_id)
+        message_type = self.get_argument("message_type")
 
         try:
             payload = ujson.loads(self.get_argument("payload"))
@@ -213,7 +211,9 @@ class SendMessageHandler(AuthenticatedHandler):
             raise HTTPError(400, "Corrupted payload")
 
         try:
-            yield delivery.send_message(recipient_class, recipient_key, self.token.account, payload)
+            yield message_queue.add_message(
+                gamespace_id, self.token.account, recipient_class, recipient_key, message_type, payload)
+
         except MessageSendError as e:
             raise HTTPError(400, "Failed to deliver a message: " + e.message)
 
@@ -224,9 +224,7 @@ class InternalHandler(object):
 
     @coroutine
     def send_batch(self, gamespace, sender, messages):
-        online = self.application.online
-
+        message_queue = self.application.message_queue
         logging.info("Delivering batched messages...")
 
-        delivery = yield online.delivery(gamespace)
-        delivery.send_messages(sender, messages)
+        yield message_queue.add_messages(gamespace, sender, messages)

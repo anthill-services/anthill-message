@@ -14,6 +14,7 @@ import options as _opts
 from model.history import MessagesHistoryModel
 from model.group import GroupsModel
 from model.online import OnlineModel
+from model.queue import MessagesQueueModel
 
 
 class MessagesServer(common.server.Server):
@@ -30,6 +31,7 @@ class MessagesServer(common.server.Server):
         self.history = MessagesHistoryModel(self.db)
         self.groups = GroupsModel(self.db, self.history)
         self.online = OnlineModel(self.groups, self.history)
+        self.message_queue = MessagesQueueModel(self.history)
 
     def get_metadata(self):
         return {
@@ -55,7 +57,7 @@ class MessagesServer(common.server.Server):
         }
 
     def get_models(self):
-        return [self.groups, self.history, self.online]
+        return [self.groups, self.history, self.online, self.message_queue]
 
     def get_internal_handler(self):
         return handler.InternalHandler(self)

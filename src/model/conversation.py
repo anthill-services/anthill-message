@@ -6,131 +6,14 @@ import uuid
 
 from tornado.gen import coroutine, Return, Future
 from group import GroupsModel
-from . import CLASS_USER, CLASS_GROUP
+from . import CLASS_USER, CLASS_GROUP, DeliveryFlags
+
+from pika import BasicProperties
 
 
 class ProcessError(Exception):
     def __init__(self, message):
         self.message = message
-
-
-class MessageSendError(Exception):
-    def __init__(self, message):
-        self.message = message
-
-
-class MessageDelivery(object):
-
-    """
-    A class represents a delivery of a single message to some recipient.
-    """
-
-    def __init__(self, online, gamespace_id, connection):
-        self.connection = connection
-        self.gamespace_id = gamespace_id
-        self.online = online
-
-    @coroutine
-    def init(self):
-        pass
-
-    @coroutine
-    def send_messages(self, sender, messages):
-        for message in messages:
-            if any(t not in message for t in ["recipient_class", "recipient_key", "message_type", "payload"]):
-                raise MessageSendError(
-                    "Messages expected to be a list of {'recipient_class', 'recipient_key', `message_type`, 'payload'}")
-
-        yield [
-            self.send_message(
-                m["recipient_class"],
-                m["recipient_key"],
-                sender,
-                m["message_type"],
-                m["payload"])
-            for m in messages
-        ]
-
-    @coroutine
-    def send_message(self, recipient_class, recipient_key, sender, message_type, payload):
-        """
-        Tries to deliver a message to recipient (recipient_class, recipient_key)
-        :param recipient_class: a class of recipient (user, group, etc)
-        :param recipient_key: a key in such class (account id, group id etc)
-        :param sender: account id of the sender
-        :param payload: a dict containing the message to be delivered
-        :param message_type: a kind of a message (like a subject)
-        :returns whenever message was delivered, or not (in that case it's stored in a database)
-        """
-
-        if not isinstance(payload, dict):
-            raise MessageSendError("Payload expected to be a dict")
-
-        message_uuid = str(uuid.uuid4())
-
-        body = ujson.dumps({
-            AccountConversation.GAMESPACE: self.gamespace_id,
-            AccountConversation.MESSAGE_UUID: message_uuid,
-            AccountConversation.SENDER: sender,
-            AccountConversation.RECIPIENT_CLASS: recipient_class,
-            AccountConversation.RECIPIENT_KEY: recipient_key,
-            AccountConversation.TYPE: message_type,
-            AccountConversation.PAYLOAD: payload
-        })
-
-        exchange_id = AccountConversation.__id__(recipient_class, recipient_key)
-
-        delivered = False
-
-        channel = yield self.connection.channel()
-
-        try:
-            f = Future()
-
-            def delivered_(m):
-                import pika
-                if f.running():
-                    f.set_result(isinstance(m.method, pika.spec.Basic.Ack))
-
-            def closed(ch, reason, param):
-                if f.running():
-                    f.set_result(False)
-
-            yield channel.confirm_delivery(delivered_)
-            yield channel.add_on_close_callback(closed)
-
-            from pika import BasicProperties
-
-            properties = BasicProperties(
-                content_type='text/plain',
-                delivery_mode=1)
-
-            yield channel.basic_publish(
-                exchange_id,
-                '',
-                body,
-                properties=properties,
-                mandatory=True)
-
-            delivered = yield f
-        finally:
-            if channel.is_open:
-                yield channel.close()
-
-        logging.info("Message '{0}' {1} been delivered.".format(message_uuid, "has" if delivered else "has not"))
-
-        history = self.online.history
-
-        yield history.add_message(
-            self.gamespace_id,
-            message_uuid,
-            recipient_class,
-            sender,
-            recipient_key,
-            datetime.datetime.utcnow(),
-            message_type,
-            payload,
-            delivered)
 
 
 class AccountConversation(object):
@@ -142,6 +25,7 @@ class AccountConversation(object):
     RECIPIENT_KEY = "key"
     TYPE = "type"
     PAYLOAD = "payload"
+    FLAGS = "fl"
 
     EXCHANGE_PREFIX = "conv"
 
@@ -195,9 +79,8 @@ class AccountConversation(object):
 
             yield self.receive_exchange.bind(exchange=group_exchange)
 
-        @coroutine
         def receiver(m):
-            result = yield self.handler(
+            return self.handler(
                 self.gamespace_id,
                 m.message_uuid,
                 m.sender,
@@ -205,8 +88,6 @@ class AccountConversation(object):
                 m.recipient,
                 m.message_type,
                 m.payload)
-
-            raise Return(result)
 
         yield history.read_incoming_messages(
             self.gamespace_id, CLASS_USER, self.account_id, receiver)
@@ -239,7 +120,7 @@ class AccountConversation(object):
         logging.info("Conversation for account {0} released.".format(self.account_id))
 
     @coroutine
-    def __process__(self, body):
+    def __process__(self, channel, method, properties, body):
         try:
             payload = ujson.loads(body)
         except (KeyError, ValueError):
@@ -260,8 +141,18 @@ class AccountConversation(object):
             raise ProcessError("Bad gamespace")
 
         if self.handler:
-            yield self.handler(gamespace_id, message_uuid, sender, recipient_class,
-                               recipient_key, message_type, payload)
+            # try to process the message by a listener
+            # noinspection PyBroadException
+            try:
+                result = yield self.handler(
+                    gamespace_id, message_uuid, sender, recipient_class, recipient_key, message_type, payload)
+            except Exception:
+                logging.exception("Failed to handle the message")
+                result = False
+
+            raise Return(result)
+
+        raise Return(False)
 
     def __del__(self):
         logging.info("Conversation released!")
@@ -273,19 +164,15 @@ class AccountConversation(object):
     @coroutine
     def __on_message__(self, channel, method, properties, body):
         try:
-            yield self.__process__(body)
+            delivered = yield self.__process__(channel, method, properties, body)
         except ProcessError as e:
             logging.error("Failed to process incoming message: " + e.message)
+            delivered = False
 
-    @coroutine
-    def send_message(self, recipient_class, recipient_key, sender, message_type, payload):
-        delivery = yield self.online.delivery(self.gamespace_id)
+        channel.basic_ack(delivery_tag=method.delivery_tag)
 
-        result = yield delivery.send_message(
-            recipient_class,
-            recipient_key,
-            sender,
-            message_type,
-            payload)
-
-        raise Return(result)
+        channel.basic_publish(
+            exchange='',
+            routing_key=properties.reply_to,
+            properties=BasicProperties(correlation_id=properties.correlation_id),
+            body='true' if delivered else 'false')

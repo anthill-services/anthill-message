@@ -27,6 +27,8 @@
                 zis.messages[id] = payload;
 
                 notify_success("New message received!");
+
+                return true;
             });
 
             this.panel = $('<div class="panel panel-default"></div>').appendTo(div);
@@ -74,6 +76,21 @@
                     },
                     "message": {"style": "primary", "validation": "non-empty", "type": "json", "value": {},
                         "title": "Message", "order": 4, "height": 200
+                    },
+                    "flags": {"style": "primary", "validation": "non-empty", "type": "dorn",
+                        "value": ["remove_delivered"],
+                        "title": "Flags", "order": 5, "schema": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "title": "Other Flags",
+                            "items": {
+                                "type": "string",
+                                "enum": ["remove_delivered"],
+                                "options": {
+                                    "enum_titles": ["Delete once delivered"]
+                                }
+                            }
+                        }
                     }
                 },
                 "title": "Send a message",
@@ -89,12 +106,15 @@
                         return false;
                     }
 
+                    var flags = JSON.parse(fields["flags"]);
+
                     zis.ws.request("send_message", {
                         "recipient_class": fields["recipient_class"],
                         "recipient_key": fields["recipient_key"],
                         "sender": fields["sender"],
                         "message_type": fields["message_type"],
-                        "message": fields["message"]
+                        "message": fields["message"],
+                        "flags": flags
                     }).done(function(payload)
                     {
                         notify_success("Message sent!");

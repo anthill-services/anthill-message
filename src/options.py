@@ -59,3 +59,21 @@ define("group_cluster_size",
        type=int,
        group="groups",
        help="Cluster size to group users groups around")
+
+define("message_incoming_queue_name",
+       default="message.incoming.queue",
+       help="RabbitMQ incoming queue name.",
+       group="message",
+       type=str)
+
+define("message_prefetch_count",
+       default=32,
+       type=int,
+       group="message",
+       help="How much of messages can be prefetch")
+
+define("outgoing_message_workers",
+       default=32,
+       type=int,
+       group="message",
+       help="How much workers process the outgoing messages")

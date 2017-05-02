@@ -3,11 +3,10 @@ from tornado.gen import coroutine, Return
 from common.model import Model
 from common.database import DatabaseError, DuplicateError
 from common.cluster import Cluster, NoClusterError
-from history import MessageError, MessagesHistoryModel
 
 from common.options import options
 
-from . import CLASS_GROUP
+from . import CLASS_GROUP, MessageError
 
 
 class GroupAdapter(object):
@@ -15,7 +14,6 @@ class GroupAdapter(object):
         self.group_id = data.get("group_id")
         self.group_class = str(data.get("group_class"))
         self.key = str(data.get("group_key"))
-        self.store_messages = bool(data.get("group_store_messages", 1))
         self.clustered = bool(data.get("group_clustered", 1))
         self.cluster_size = data.get("group_cluster_size", 1000)
 
@@ -57,16 +55,16 @@ class GroupsModel(Model):
         return str(participation.group_id)
 
     @coroutine
-    def add_group(self, gamespace, group_class, key, store_messages, clustered=False, cluster_size=1000):
+    def new_group(self, gamespace, group_class, key, clustered=False, cluster_size=1000):
 
         try:
             group_id = yield self.db.insert(
                 """
                     INSERT INTO `groups`
-                    (`gamespace_id`, `group_class`, `group_key`, `group_store_messages`,
+                    (`gamespace_id`, `group_class`, `group_key`,
                         `group_clustered`, `group_cluster_size`)
-                    VALUES (%s, %s, %s, %s, %s, %s);
-                """, gamespace, group_class, key, int(bool(store_messages)), int(bool(clustered)), cluster_size)
+                    VALUES (%s, %s, %s, %s, %s);
+                """, gamespace, group_class, key, int(bool(clustered)), cluster_size)
         except DuplicateError:
             raise GroupExistsError()
         except DatabaseError as e:
@@ -177,14 +175,14 @@ class GroupsModel(Model):
             raise GroupError("Failed to delete a group: " + e.args[1])
 
     @coroutine
-    def update_group(self, gamespace, group_id, group_class, key, store_messages, cluster_size):
+    def update_group(self, gamespace, group_id, group_class, key, cluster_size):
         try:
             yield self.db.execute(
                 """
                     UPDATE `groups`
-                    SET `group_class`=%s, `group_key`=%s, `group_store_messages`=%s, `group_cluster_size`=%s
+                    SET `group_class`=%s, `group_key`=%s, `group_cluster_size`=%s
                     WHERE `gamespace_id`=%s AND `group_id`=%s;
-                """, group_class, key, int(bool(store_messages)), cluster_size, gamespace, group_id)
+                """, group_class, key, cluster_size, gamespace, group_id)
         except DatabaseError as e:
             raise GroupError("Failed to update a group: " + e.args[1])
 

@@ -2,6 +2,7 @@
 import common.admin as a
 from common.internal import Internal, InternalError
 from common.validate import validate
+from common.jsonrpc import JsonRPCError
 from common import to_int
 
 from common.access import AccessToken
@@ -221,7 +222,6 @@ class NewGroupController(a.AdminController):
             a.form(title="Create a new group", fields={
                 "group_class": a.field("Group class", "text", "primary", "non-empty", order=1),
                 "group_key": a.field("Group key", "text", "primary", "non-empty", order=2),
-                "store_messages": a.field("Store messages", "switch", "primary", "non-empty", order=3),
                 "clustered": a.field("Clustered (cannot change later)", "switch", "primary", "non-empty", order=4),
                 "cluster_size": a.field("Cluster Size", "text", "primary", "number", order=5),
             }, methods={
@@ -235,7 +235,6 @@ class NewGroupController(a.AdminController):
     @coroutine
     def get(self, **context):
         raise Return({
-            "store_messages": "true",
             "clustered": "false",
             "cluster_size": 1000
         })
@@ -244,16 +243,15 @@ class NewGroupController(a.AdminController):
         return ["message_admin"]
 
     @coroutine
-    @validate(group_class="str", group_key="str", cluster_size="int", store_messages="bool", clustered="bool")
-    def create(self, group_class, group_key, cluster_size, store_messages=False, clustered=False):
+    @validate(group_class="str", group_key="str", cluster_size="int", clustered="bool")
+    def create(self, group_class, group_key, cluster_size,  clustered=False):
         groups = self.application.groups
 
         try:
-            group_id = yield groups.add_group(
+            group_id = yield groups.new_group(
                 self.gamespace,
                 group_class,
                 group_key,
-                store_messages,
                 clustered,
                 cluster_size)
         except GroupExistsError:
@@ -451,7 +449,6 @@ class GroupController(a.AdminController):
             a.form(title="Group", fields={
                 "group_class": a.field("Group class", "text", "primary", "non-empty", order=1),
                 "group_key": a.field("Group key", "text", "primary", "non-empty", order=2),
-                "store_messages": a.field("Store messages", "switch", "primary", "non-empty", order=3),
                 "clustered": a.field("Clustered", "switch", "primary", "non-empty", order=4, readonly=True),
                 "cluster_size": a.field("Cluster Size", "text", "primary", "number", order=5),
             }, methods={
@@ -498,15 +495,14 @@ class GroupController(a.AdminController):
         raise Return({
             "group_class": group.group_class,
             "group_key": group.key,
-            "store_messages": "true" if group.store_messages else "false",
             "clustered": "true" if group.clustered else "false",
             "cluster_size": group.cluster_size,
             "participants": participants
         })
 
     @coroutine
-    @validate(group_class="str", group_key="str", cluster_size="int", store_messages="bool")
-    def update(self, group_class, group_key, cluster_size, store_messages=False, **ignored):
+    @validate(group_class="str", group_key="str", cluster_size="int")
+    def update(self, group_class, group_key, cluster_size, **ignored):
         groups = self.application.groups
         group_id = self.context.get("group_id")
 
@@ -516,7 +512,6 @@ class GroupController(a.AdminController):
                 group_id,
                 group_class,
                 group_key,
-                store_messages,
                 cluster_size)
         except GroupError as e:
             raise a.ActionError("Failed to update a group:" + e.message)
@@ -587,23 +582,37 @@ class MessagesStreamController(a.StreamAdminController):
 
     @coroutine
     def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
-        yield self.rpc(
-            self,
-            "message",
-            gamespace_id=gamespace_id,
-            message_id=message_id,
-            sender=sender,
-            recipient_class=recipient_class,
-            recipient_key=recipient_key,
-            message_type=message_type,
-            payload=payload)
+        try:
+            result = yield self.request(
+                self,
+                "message",
+                gamespace_id=gamespace_id,
+                message_id=message_id,
+                sender=sender,
+                recipient_class=recipient_class,
+                recipient_key=recipient_key,
+                message_type=message_type,
+                payload=payload)
+        except JsonRPCError:
+            raise Return(False)
 
-    @coroutine
-    @validate(recipient_class="str", recipient_key="str", sender="int", message_type="str", message="load_json")
-    def send_message(self, recipient_class, recipient_key, sender, message_type, message):
-        yield self.conversation.send_message(recipient_class, recipient_key, sender, message_type, message)
+        raise Return(result)
 
-        raise Return("ok")
+    @validate(recipient_class="str", recipient_key="str", sender="int",
+              message_type="str", message="load_json", flags="json_list_of_strings")
+    def send_message(self, recipient_class, recipient_key, sender, message_type, message, flags):
+
+        gamespace_id = self.gamespace
+        message_queue = self.application.message_queue
+
+        return message_queue.add_message(
+            gamespace_id,
+            sender,
+            recipient_class,
+            recipient_key,
+            message_type,
+            message,
+            flags)
 
     @coroutine
     def opened(self, **kwargs):

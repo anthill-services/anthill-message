@@ -6,7 +6,8 @@ from common.model import Model
 import common.rabbitconn
 import common.aqmp
 
-from conversation import AccountConversation, MessageDelivery
+from conversation import AccountConversation
+
 from . import CLASS_GROUP, CLASS_USER
 from group import GroupsModel
 
@@ -43,15 +44,6 @@ class OnlineModel(Model):
         conversation = AccountConversation(self, gamespace_id, account_id, connection)
 
         raise Return(conversation)
-
-    @coroutine
-    def delivery(self, gamespace_id):
-        connection = yield self.connections.get()
-
-        delivery = MessageDelivery(self, gamespace_id, connection)
-        yield delivery.init()
-
-        raise Return(delivery)
 
     @coroutine
     def get_account_exchange(self, account_id, channel):

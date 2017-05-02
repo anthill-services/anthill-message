@@ -4,10 +4,13 @@ CREATE TABLE `messages` (
   `message_uuid` varchar(40) DEFAULT NULL,
   `message_sender` int(11) NOT NULL,
   `message_recipient_class` varchar(64) NOT NULL,
-  `message_recipient` varchar(255) NOT NULL,
+  `message_recipient` varchar(255) NOT NULL DEFAULT '',
   `message_time` datetime NOT NULL,
   `message_type` varchar(64) NOT NULL,
   `message_payload` json NOT NULL,
   `message_delivered` tinyint(1) NOT NULL DEFAULT '0',
-  PRIMARY KEY (`message_id`)
+  `message_flags` set('REMOVE_DELIVERED') DEFAULT NULL,
+  PRIMARY KEY (`message_id`),
+  KEY `message_recipient` (`message_recipient`),
+  KEY `message_sender` (`message_sender`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;

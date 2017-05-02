@@ -1,9 +1,15 @@
 
 from tornado.gen import coroutine, Return
+from tornado.queues import QueueEmpty
+
 from common.model import Model
 from common.database import DatabaseError
+from common.validate import validate
+
+from . import MessageError, DeliveryFlags
 
 import ujson
+import logging
 
 
 class MessageQueryError(Exception):
@@ -25,6 +31,10 @@ class MessageAdapter(object):
         self.message_type = data.get("message_type")
         self.payload = data.get("message_payload")
         self.delivered = data.get("message_delivered")
+
+        flags = data.get("message_flags", "").lower().split(",")
+
+        self.flags = DeliveryFlags.parse(flags)
 
 
 class MessagesQuery(object):
@@ -144,21 +154,27 @@ class MessagesHistoryModel(Model):
         return MessagesQuery(gamespace, self.db)
 
     @coroutine
-    def add_message(self, gamespace, message_uuid, recipient_class,
-                    sender, recipient, time, message_type, payload, delivered=False):
+    @validate(gamespace="int", sender="int", message_uuid="str", recipient_class="str",
+              recipient_key="str", time="datetime", message_type="str", payload="json",
+              flags="json_list_of_strings", delivered="bool")
+    def add_message(self, gamespace, sender, message_uuid, recipient_class,
+                    recipient_key, time, message_type, payload, flags, delivered=False):
 
         if not isinstance(payload, dict):
             raise MessageError("payload should be a dict")
+
+        flags = ",".join(flags)
 
         try:
             message_id = yield self.db.insert(
                 """
                     INSERT INTO `messages`
                     (`gamespace_id`, `message_uuid`, `message_recipient_class`, `message_sender`,
-                        `message_recipient`, `message_time`, `message_type`, `message_payload`, `message_delivered`)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                        `message_recipient`, `message_time`, `message_type`, `message_payload`,
+                        `message_delivered`, `message_flags`)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """, gamespace, message_uuid, recipient_class, sender,
-                recipient, time, message_type, ujson.dumps(payload), int(delivered))
+                recipient_key, time, message_type, ujson.dumps(payload), int(delivered), flags)
         except DatabaseError as e:
             raise MessageError("Failed to add message: " + e.args[1])
         else:
@@ -210,20 +226,32 @@ class MessagesHistoryModel(Model):
                         FOR UPDATE;
                     """, recipient_class, recipient, gamespace)
 
-                received_ids = []
+                mark_delivered_ids = []
+                remove_ids = []
 
                 for m in map(MessageAdapter, messages):
                     recv = yield receiver(m)
                     if recv:
-                        received_ids.append(m.message_id)
+                        if DeliveryFlags.REMOVE_DELIVERED in m.flags:
+                            remove_ids.append(m.message_id)
+                        else:
+                            mark_delivered_ids.append(m.message_id)
 
-                if received_ids:
+                if mark_delivered_ids:
                     yield db.query(
                         """
                             UPDATE `messages`
                             SET `message_delivered`=1
                             WHERE `gamespace_id`=%s AND `message_id` IN %s;
-                        """, gamespace, received_ids
+                        """, gamespace, mark_delivered_ids
+                    )
+
+                if remove_ids:
+                    yield db.query(
+                        """
+                            DELETE FROM `messages`
+                            WHERE `gamespace_id`=%s AND `message_id` IN %s;
+                        """, gamespace, remove_ids
                     )
 
                 yield db.commit()
@@ -257,10 +285,3 @@ class MessagesHistoryModel(Model):
 class MessageNotFound(Exception):
     pass
 
-
-class MessageError(Exception):
-    def __init__(self, message):
-        self.message = message
-
-    def __str__(self):
-        return self.message
