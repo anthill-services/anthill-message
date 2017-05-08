@@ -44,6 +44,7 @@ class AccountConversation(object):
         self.receive_channel = None
         self.receive_exchange = None
         self.receive_queue = None
+        self.receive_consumer = None
 
         self.handler = None
 
@@ -92,30 +93,41 @@ class AccountConversation(object):
         yield history.read_incoming_messages(
             self.gamespace_id, CLASS_USER, self.account_id, receiver)
 
-        yield self.receive_queue.consume(self.__on_message__)
+        self.receive_consumer = yield self.receive_queue.consume(self.__on_message__)
 
         logging.info("Conversation for account {0} started.".format(self.account_id))
 
     def handle(self, message_callback):
         self.handler = message_callback
 
+    # noinspection PyBroadException
     @coroutine
     def release(self):
 
+        if self.receive_consumer:
+            try:
+                yield self.receive_consumer.cancel()
+            except:
+                logging.exception("Failed to cancel the consumer")
+
         if self.receive_queue:
-            yield self.receive_queue.delete()
+            try:
+                yield self.receive_queue.delete()
+            except:
+                logging.exception("Failed to delete the queue")
 
         if self.receive_channel:
             try:
                 yield self.receive_channel.close()
             except:
-                pass # well
+                logging.exception("Failed to close the channel")
 
         self.connection = None
 
         self.receive_channel = None
         self.receive_exchange = None
         self.receive_queue = None
+        self.receive_consumer = None
 
         logging.info("Conversation for account {0} released.".format(self.account_id))
 
