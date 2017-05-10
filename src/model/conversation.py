@@ -107,19 +107,19 @@ class AccountConversation(object):
         if self.receive_consumer:
             try:
                 yield self.receive_consumer.cancel()
-            except:
+            except Exception:
                 logging.exception("Failed to cancel the consumer")
 
         if self.receive_queue:
             try:
                 yield self.receive_queue.delete()
-            except:
+            except Exception:
                 logging.exception("Failed to delete the queue")
 
         if self.receive_channel:
             try:
                 yield self.receive_channel.close()
-            except:
+            except Exception:
                 logging.exception("Failed to close the channel")
 
         self.connection = None
