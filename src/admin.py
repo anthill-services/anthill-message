@@ -618,9 +618,11 @@ class MessagesStreamController(a.StreamAdminController):
     def opened(self, **kwargs):
         pass # yield self.rpc(self, "servers", result)
 
-    def on_close(self):
-        IOLoop.current().add_callback(self.conversation.release)
-        self.conversation = None
+    @coroutine
+    def closed(self):
+        if self.conversation:
+            yield self.conversation.release()
+            self.conversation = None
 
 
 class MessagesHistoryController(a.AdminController):

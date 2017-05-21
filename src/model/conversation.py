@@ -104,12 +104,6 @@ class AccountConversation(object):
     @coroutine
     def release(self):
 
-        if self.receive_consumer:
-            try:
-                yield self.receive_consumer.cancel()
-            except Exception:
-                logging.exception("Failed to cancel the consumer")
-
         if self.receive_queue:
             try:
                 yield self.receive_queue.delete()
