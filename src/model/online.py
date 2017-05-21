@@ -30,7 +30,8 @@ class OnlineModel(Model):
 
         self.connections = common.rabbitconn.RabbitMQConnectionPool(
             options.message_broker,
-            options.message_broker_max_connections)
+            options.message_broker_max_connections,
+            connection_name="message.conversations")
 
     @coroutine
     def release(self):

@@ -32,7 +32,7 @@ class MessagesQueueModel(Model):
     def __init__(self, history):
         self.history = history
 
-        self.connection = RabbitMQConnection(options.message_broker)
+        self.connection = RabbitMQConnection(options.message_broker, connection_name="message.queue")
         self.channel = None
         self.exchange = None
         self.queue = None
