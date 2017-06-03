@@ -1,9 +1,9 @@
 
 from common.validate import validate
+from common import Flags
 
 
 CLASS_USER = "user"
-CLASS_GROUP = "group"
 
 
 class MessageError(Exception):
@@ -19,12 +19,5 @@ class MessageSendError(Exception):
         self.message = message
 
 
-class DeliveryFlags(object):
+class DeliveryFlags(Flags):
     REMOVE_DELIVERED = 'remove_delivered'
-
-    @staticmethod
-    @validate(flags="json_list_of_strings")
-    def parse(flags):
-        return list(set(flags) & {
-            DeliveryFlags.REMOVE_DELIVERED
-        })

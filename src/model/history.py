@@ -34,7 +34,7 @@ class MessageAdapter(object):
 
         flags = data.get("message_flags", "").lower().split(",")
 
-        self.flags = DeliveryFlags.parse(flags)
+        self.flags = DeliveryFlags(flags)
 
 
 class MessagesQuery(object):
@@ -156,14 +156,12 @@ class MessagesHistoryModel(Model):
     @coroutine
     @validate(gamespace="int", sender="int", message_uuid="str", recipient_class="str",
               recipient_key="str", time="datetime", message_type="str", payload="json",
-              flags="json_list_of_strings", delivered="bool")
+              flags=DeliveryFlags, delivered="bool")
     def add_message(self, gamespace, sender, message_uuid, recipient_class,
                     recipient_key, time, message_type, payload, flags, delivered=False):
 
         if not isinstance(payload, dict):
             raise MessageError("payload should be a dict")
-
-        flags = ",".join(flags)
 
         try:
             message_id = yield self.db.insert(
@@ -174,7 +172,7 @@ class MessagesHistoryModel(Model):
                         `message_delivered`, `message_flags`)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """, gamespace, message_uuid, recipient_class, sender,
-                recipient_key, time, message_type, ujson.dumps(payload), int(delivered), flags)
+                recipient_key, time, message_type, ujson.dumps(payload), int(delivered), flags.dump())
         except DatabaseError as e:
             raise MessageError("Failed to add message: " + e.args[1])
         else:
@@ -267,6 +265,17 @@ class MessagesHistoryModel(Model):
                     DELETE FROM `messages`
                     WHERE `message_recipient_class`=%s AND `message_recipient`=%s AND `gamespace_id`=%s;
                 """, recipient_class, recipient, gamespace)
+        except DatabaseError as e:
+            raise MessageError("Failed to delete messages: " + e.args[1])
+
+    @coroutine
+    def delete_messages_like(self, gamespace, recipient_class, recipient_like):
+        try:
+            yield self.db.execute(
+                """
+                    DELETE FROM `messages`
+                    WHERE `message_recipient_class` LIKE %s AND `message_recipient`=%s AND `gamespace_id`=%s;
+                """, recipient_class, recipient_like, gamespace)
         except DatabaseError as e:
             raise MessageError("Failed to delete messages: " + e.args[1])
 

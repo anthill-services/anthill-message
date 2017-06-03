@@ -6,7 +6,7 @@ import uuid
 
 from tornado.gen import coroutine, Return, Future
 from group import GroupsModel
-from . import CLASS_USER, CLASS_GROUP, DeliveryFlags
+from . import CLASS_USER, DeliveryFlags
 
 from pika import BasicProperties
 
@@ -72,7 +72,7 @@ class AccountConversation(object):
 
         participants = yield groups.list_participants_by_account(self.gamespace_id, self.account_id)
         for participant in participants:
-            exchange_name = AccountConversation.__id__(CLASS_GROUP, GroupsModel.calculate_recipient(participant))
+            exchange_name = AccountConversation.__id__(participant.group_class, participant.calculate_recipient())
             group_exchange = yield self.receive_channel.exchange(
                 exchange=exchange_name,
                 exchange_type='fanout',

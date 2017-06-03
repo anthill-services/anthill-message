@@ -121,7 +121,7 @@ class MessagesQueueModel(Model):
         except KeyError as e:
             raise MessagesQueueError("Missing field: " + e.args[0])
 
-        flags = message.get(AccountConversation.FLAGS, [])
+        flags = DeliveryFlags(message.get(AccountConversation.FLAGS, []))
 
         # noinspection PyBroadException
         try:
@@ -151,11 +151,6 @@ class MessagesQueueModel(Model):
         if not isinstance(payload, dict):
             raise MessageSendError("Payload expected to be a dict")
 
-        if flags:
-            flags = DeliveryFlags.parse(flags)
-        else:
-            flags = []
-
         message_uuid = str(uuid.uuid4())
 
         body = ujson.dumps({
@@ -166,7 +161,7 @@ class MessagesQueueModel(Model):
             AccountConversation.RECIPIENT_KEY: recipient_key,
             AccountConversation.TYPE: message_type,
             AccountConversation.PAYLOAD: payload,
-            AccountConversation.FLAGS: flags
+            AccountConversation.FLAGS: flags.as_list()
         })
 
         exchange_id = AccountConversation.__id__(recipient_class, recipient_key)
@@ -324,11 +319,13 @@ class MessagesQueueModel(Model):
                 logging.error("A message '{0}' skipped since missing fields.".format(ujson.dumps(message)))
                 continue
 
-            flags = message.get("flags")
+            flags_ = message.get("flags", [])
 
-            if flags and not isinstance(flags, list):
+            if flags_ and not isinstance(flags_, list):
                 logging.error("A message '{0}' flags should be a list.".format(ujson.dumps(message)))
                 continue
+
+            flags = DeliveryFlags(flags_)
 
             message_uuid = str(uuid.uuid4())
 
@@ -340,7 +337,7 @@ class MessagesQueueModel(Model):
                 AccountConversation.RECIPIENT_KEY: recipient_key,
                 AccountConversation.TYPE: message_type,
                 AccountConversation.PAYLOAD: payload,
-                AccountConversation.FLAGS: flags
+                AccountConversation.FLAGS: flags.as_list()
             })
 
             out_queue.put_nowait(body)
@@ -355,7 +352,7 @@ class MessagesQueueModel(Model):
     @coroutine
     @validate(gamespace="int", sender="int", recipient_class="str",
               recipient_key="str", message_type="str", payload="json",
-              flags="json_list_of_strings")
+              flags=DeliveryFlags)
     def add_message(self, gamespace, sender, recipient_class, recipient_key, message_type, payload, flags):
 
         channel = yield self.connection.channel()
@@ -376,7 +373,7 @@ class MessagesQueueModel(Model):
                 AccountConversation.RECIPIENT_KEY: recipient_key,
                 AccountConversation.TYPE: message_type,
                 AccountConversation.PAYLOAD: payload,
-                AccountConversation.FLAGS: flags
+                AccountConversation.FLAGS: flags.as_list()
             })
 
             f = Future()

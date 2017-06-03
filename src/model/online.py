@@ -8,7 +8,7 @@ import common.aqmp
 
 from conversation import AccountConversation
 
-from . import CLASS_GROUP, CLASS_USER
+from . import CLASS_USER
 from group import GroupsModel
 
 
@@ -83,7 +83,7 @@ class OnlineModel(Model):
                 return
 
             group_exchange_name = AccountConversation.__id__(
-                CLASS_GROUP, GroupsModel.calculate_recipient(participation))
+                participation.group_class, participation.calculate_recipient())
 
             group_exchange = yield channel.exchange(
                 exchange=group_exchange_name,

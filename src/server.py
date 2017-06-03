@@ -29,7 +29,7 @@ class MessagesServer(common.server.Server):
             password=options.db_password)
 
         self.history = MessagesHistoryModel(self.db)
-        self.groups = GroupsModel(self.db, self.history)
+        self.groups = GroupsModel(self.db, self)
         self.online = OnlineModel(self.groups, self.history)
         self.message_queue = MessagesQueueModel(self.history)
 

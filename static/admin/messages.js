@@ -218,6 +218,14 @@
                     }
                 },
                 {
+                    "title": "Recipient Class",
+                    "value": s["recipient_class"]
+                },
+                {
+                    "title": "Recipient Key",
+                    "value": s["recipient_key"]
+                },
+                {
                     "title": "Message Type",
                     "value": s["message_type"],
                     "decorator": "label",

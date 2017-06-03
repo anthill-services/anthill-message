@@ -11,7 +11,7 @@ from tornado.ioloop import IOLoop
 
 from model.group import GroupError, GroupNotFound, GroupExistsError, UserAlreadyJoined, GroupParticipantNotFound
 from model.history import MessageError
-from model import CLASS_USER, CLASS_GROUP
+from model import CLASS_USER, DeliveryFlags
 
 import logging
 import ujson
@@ -430,7 +430,12 @@ class GroupParticipantController(a.AdminController):
             raise a.ActionError("No such participation")
 
         try:
-            yield groups.leave_group(self.gamespace, participation.group_id, participation.account)
+            group = yield groups.get_group(self.gamespace, participation.group_id)
+        except GroupNotFound:
+            raise a.ActionError("No such group")
+
+        try:
+            yield groups.leave_group(self.gamespace, group, participation.account)
         except GroupError as e:
             raise a.ActionError("Failed to leave a group:" + e.message)
 
@@ -468,7 +473,7 @@ class GroupController(a.AdminController):
                        message_recipient_class="group",
                        message_recipient=str(self.context.get("group_id")) + "-%"),
                 a.link("groups_by_class", "See groups by class: " + data["group_class"],
-                       group_class=data["group_class"])
+                       icon="filter", group_class=data["group_class"])
             ])
         ]
 
@@ -527,7 +532,12 @@ class GroupController(a.AdminController):
         group_id = self.context.get("group_id")
 
         try:
-            yield groups.delete_group(self.gamespace, group_id)
+            group = yield groups.get_group(self.gamespace, group_id)
+        except GroupNotFound:
+            raise a.ActionError("No such group")
+
+        try:
+            yield groups.delete_group(self.gamespace, group)
         except GroupError as e:
             raise a.ActionError("Failed to delete a group:" + e.message)
 
@@ -612,7 +622,7 @@ class MessagesStreamController(a.StreamAdminController):
             recipient_key,
             message_type,
             message,
-            flags)
+            DeliveryFlags(flags))
 
     @coroutine
     def opened(self, **kwargs):
