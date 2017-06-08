@@ -160,7 +160,7 @@ class GroupsController(a.AdminController):
         raise a.Redirect("group", group_id=group.group_id)
 
     @coroutine
-    @validate(group_class="str", group_key="str_or_none")
+    @validate(group_class="str", group_key="str")
     def search_class(self, group_class, group_key=None):
 
         if not group_key:
@@ -720,8 +720,8 @@ class MessagesHistoryController(a.AdminController):
         raise a.Redirect("history", **filters)
 
     @coroutine
-    @validate(page="int", message_sender="int_or_none", message_recipient_class="str_or_none",
-              message_recipient="str_or_none", message_type="str_or_none", message_delivered="int_or_none")
+    @validate(page="int", message_sender="int", message_recipient_class="str",
+              message_recipient="str", message_type="str", message_delivered="int")
     def get(self,
             page=1,
             message_sender=None,

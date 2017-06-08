@@ -192,7 +192,7 @@ class GroupsModel(Model):
             raise GroupError("Failed to update a group: " + e.args[1])
 
     @coroutine
-    @validate(gamespace="int", group=GroupAdapter, account="int", role="str", notify="json_dict_or_none")
+    @validate(gamespace="int", group=GroupAdapter, account="int", role="str", notify="json_dict")
     def join_group(self, gamespace, group, account, role, notify=None):
 
         group_id = group.group_id
@@ -267,7 +267,7 @@ class GroupsModel(Model):
             raise GroupError("Failed to update a group participation: " + e.args[1])
 
     @coroutine
-    @validate(gamespace="int", group=GroupAdapter, account="int", notify="json_dict_or_none")
+    @validate(gamespace="int", group=GroupAdapter, account="int", notify="json_dict")
     def leave_group(self, gamespace, group, account, notify=None):
 
         participation = yield self.find_group_participant(gamespace, group.group_id, account)

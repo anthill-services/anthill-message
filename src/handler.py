@@ -280,7 +280,7 @@ class InternalHandler(object):
 
     @coroutine
     @validate(gamespace="int", group_class="str_name", group_key="str", account_id="int", role="str_name",
-              notify="json_dict_or_none")
+              notify="json_dict")
     def join_group(self, gamespace, group_class, group_key, account_id, role="member", notify=None):
         groups = self.application.groups
 
@@ -306,7 +306,7 @@ class InternalHandler(object):
         })
 
     @coroutine
-    @validate(gamespace="int", group_class="str_name", group_key="str", account_id="int", notify="json_dict_or_none")
+    @validate(gamespace="int", group_class="str_name", group_key="str", account_id="int", notify="json_dict")
     def leave_group(self, gamespace, group_class, group_key, account_id, notify=None):
         groups = self.application.groups
 
