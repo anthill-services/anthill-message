@@ -1,12 +1,11 @@
 
 from tornado.gen import coroutine, Return
 
-from common.validate import validate
-from common.model import Model
+from common.cluster import Cluster
 from common.database import DatabaseError, DuplicateError
-from common.cluster import Cluster, NoClusterError
-
+from common.model import Model
 from common.options import options
+from common.validate import validate
 
 from . import MessageError, DeliveryFlags
 
@@ -76,7 +75,7 @@ class GroupsModel(Model):
         except DuplicateError:
             raise GroupExistsError()
         except DatabaseError as e:
-            raise GroupError("Failed to add a group: " + e.args[1])
+            raise GroupError(500, "Failed to add a group: " + e.args[1])
         else:
             raise Return(group_id)
 
@@ -90,7 +89,7 @@ class GroupsModel(Model):
                     WHERE `group_id`=%s AND `gamespace_id`=%s;
                 """, group_id, gamespace)
         except DatabaseError as e:
-            raise GroupError("Failed to get a group: " + e.args[1])
+            raise GroupError(500, "Failed to get a group: " + e.args[1])
 
         if not message:
             raise GroupNotFound()
@@ -108,7 +107,7 @@ class GroupsModel(Model):
                     WHERE `gamespace_id`=%s AND `group_class`=%s AND `group_key`=%s;
                 """, gamespace, group_class, key)
         except DatabaseError as e:
-            raise GroupError("Failed to find a group: " + e.args[1])
+            raise GroupError(500, "Failed to find a group: " + e.args[1])
 
         if not group:
             raise GroupNotFound()
@@ -132,7 +131,7 @@ class GroupsModel(Model):
                         AND `groups`.`group_key`=%s;
                 """, account_id, gamespace, group_class, key)
         except DatabaseError as e:
-            raise GroupError("Failed to find a group: " + e.args[1])
+            raise GroupError(500, "Failed to find a group: " + e.args[1])
 
         if not group:
             raise GroupNotFound()
@@ -153,7 +152,7 @@ class GroupsModel(Model):
                     WHERE `group_class`=%s AND `gamespace_id`=%s;
                 """, group_class, gamespace)
         except DatabaseError as e:
-            raise GroupError("Failed to list groups: " + e.args[1])
+            raise GroupError(500, "Failed to list groups: " + e.args[1])
 
         raise Return(map(GroupAdapter, groups))
 
@@ -167,7 +166,7 @@ class GroupsModel(Model):
             yield self.history.delete_messages_like(
                 gamespace_id, group.group_class, group.key + "-%")
         except MessageError as e:
-            raise GroupError("Failed to delete group's messages: " + e.message)
+            raise GroupError(500, "Failed to delete group's messages: " + e.message)
 
         try:
             yield self.db.execute(
@@ -176,7 +175,7 @@ class GroupsModel(Model):
                     WHERE `group_id`=%s AND `gamespace_id`=%s;
                 """, group_id, gamespace_id)
         except DatabaseError as e:
-            raise GroupError("Failed to delete a group: " + e.args[1])
+            raise GroupError(500, "Failed to delete a group: " + e.args[1])
 
     @coroutine
     @validate(gamespace="int", group_id="int", group_class="str", key="str", cluster_size="int")
@@ -189,7 +188,7 @@ class GroupsModel(Model):
                     WHERE `gamespace_id`=%s AND `group_id`=%s;
                 """, group_class, key, cluster_size, gamespace, group_id)
         except DatabaseError as e:
-            raise GroupError("Failed to update a group: " + e.args[1])
+            raise GroupError(500, "Failed to update a group: " + e.args[1])
 
     @coroutine
     @validate(gamespace="int", group=GroupAdapter, account="int", role="str", notify="json_dict")
@@ -214,7 +213,7 @@ class GroupsModel(Model):
         except DuplicateError:
             raise UserAlreadyJoined()
         except DatabaseError as e:
-            raise GroupError("Failed to join a group: " + e.args[1])
+            raise GroupError(500, "Failed to join a group: " + e.args[1])
 
         participation = GroupParticipationAdapter({
             "participation_id": participation_id,
@@ -246,7 +245,7 @@ class GroupsModel(Model):
                     WHERE `participation_id`=%s AND `gamespace_id`=%s;
                 """, participation_id, gamespace)
         except DatabaseError as e:
-            raise GroupError("Failed to get group participant: " + e.args[1])
+            raise GroupError(500, "Failed to get group participant: " + e.args[1])
 
         if not participant:
             raise GroupParticipantNotFound()
@@ -264,7 +263,7 @@ class GroupsModel(Model):
                     WHERE `gamespace_id`=%s AND `participation_id`=%s;
                 """, role, gamespace, participation_id)
         except DatabaseError as e:
-            raise GroupError("Failed to update a group participation: " + e.args[1])
+            raise GroupError(500, "Failed to update a group participation: " + e.args[1])
 
     @coroutine
     @validate(gamespace="int", group=GroupAdapter, account="int", notify="json_dict")
@@ -279,7 +278,7 @@ class GroupsModel(Model):
                     WHERE `gamespace_id`=%s AND `participation_id`=%s;
                 """, gamespace, participation.participation_id)
         except DatabaseError as e:
-            raise GroupError("Failed to leave a group: " + e.args[1])
+            raise GroupError(500, "Failed to leave a group: " + e.args[1])
 
         if notify:
             yield self.app.message_queue.add_message(
@@ -297,7 +296,7 @@ class GroupsModel(Model):
                     WHERE `group_id`=%s AND `participation_account`=%s AND `gamespace_id`=%s;
                 """, group_id, account, gamespace)
         except DatabaseError as e:
-            raise GroupError("Failed to get group participant: " + e.args[1])
+            raise GroupError(500, "Failed to get group participant: " + e.args[1])
 
         if not participant:
             raise GroupParticipantNotFound()
@@ -315,7 +314,7 @@ class GroupsModel(Model):
                     WHERE `group_id`=%s AND `gamespace_id`=%s;
                 """, group_id, gamespace)
         except DatabaseError as e:
-            raise GroupError("Failed to list group participants: " + e.args[1])
+            raise GroupError(500, "Failed to list group participants: " + e.args[1])
 
         raise Return(map(GroupParticipationAdapter, participants))
 
@@ -332,7 +331,7 @@ class GroupsModel(Model):
                     WHERE p.`participation_account`=%s AND p.`gamespace_id`=%s;
                 """, account_id, gamespace)
         except DatabaseError as e:
-            raise GroupError("Failed to list group account participate: " + e.args[1])
+            raise GroupError(500, "Failed to list group account participate: " + e.args[1])
 
         raise Return(map(GroupAndParticipationAdapter, groups))
 
@@ -347,7 +346,7 @@ class GroupsModel(Model):
                     WHERE `participation_account`=%s AND `gamespace_id`=%s;
                 """, account_id, gamespace)
         except DatabaseError as e:
-            raise GroupError("Failed to list group account participate: " + e.args[1])
+            raise GroupError(500, "Failed to list group account participate: " + e.args[1])
 
         raise Return(map(GroupParticipationAdapter, participants))
 
@@ -369,8 +368,9 @@ class UserAlreadyJoined(Exception):
 
 
 class GroupError(Exception):
-    def __init__(self, message):
+    def __init__(self, code, message):
+        self.code = code
         self.message = message
 
     def __str__(self):
-        return self.message
+        return str(self.code) + ": " + self.message

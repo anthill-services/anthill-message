@@ -14,8 +14,8 @@ from common.validate import validate
 from model.group import GroupParticipantNotFound, GroupNotFound, GroupsModel, GroupError, UserAlreadyJoined, \
     GroupAdapter
 
-from model.history import MessageQueryError
-from model import MessageSendError, DeliveryFlags
+from model.history import MessageQueryError, MessageError
+from model import MessageSendError, DeliveryFlags, CLASS_USER
 
 import logging
 import common
@@ -81,6 +81,45 @@ class ReadGroupInboxHandler(AuthenticatedHandler):
         })
 
 
+class GetMessagesHandler(AuthenticatedHandler):
+    @scoped()
+    @coroutine
+    def get(self):
+        history = self.application.history
+
+        limit = common.to_int(self.get_argument("limit", 100))
+        offset = common.to_int(self.get_argument("offset", 0))
+
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        try:
+            messages, count = yield history.list_messages_account_with_count(
+                gamespace_id, account_id, limit=limit, offset=offset)
+        except MessageError as e:
+            raise HTTPError(e.code, "Account is not joined in that group")
+
+        self.dumps({
+            "reply_to": {
+                "recipient_class": CLASS_USER,
+                "recipient": str(account_id),
+            },
+            "total_count": count,
+            "messages": [
+                {
+                    "uuid": message.message_uuid,
+                    "recipient_class": message.recipient_class,
+                    "sender": message.sender,
+                    "recipient": message.recipient,
+                    "time": str(message.time),
+                    "type": message.message_type,
+                    "payload": message.payload
+                }
+                for message in reversed(messages)
+            ]
+        })
+
+
 class JoinGroupHandler(AuthenticatedHandler):
     @scoped()
     @coroutine
@@ -100,7 +139,7 @@ class JoinGroupHandler(AuthenticatedHandler):
         try:
             participation = yield groups.join_group(gamespace_id, group, account_id, role)
         except GroupError as e:
-            raise HTTPError(400, e.message)
+            raise HTTPError(e.code, e.message)
         except UserAlreadyJoined:
             raise HTTPError(409, "User already joined")
 
@@ -245,7 +284,7 @@ class InternalHandler(object):
         try:
             group_id = yield groups.new_group(gamespace, group_class, group_key, clustered, cluster_size)
         except GroupError as e:
-            raise InternalError(500, e.message)
+            raise InternalError(e.code, e.message)
 
         if join_account_id and join_role:
             group = GroupAdapter({
@@ -264,7 +303,7 @@ class InternalHandler(object):
                 except GroupError:
                     pass
 
-                raise InternalError(500, e.message)
+                raise InternalError(e.code, e.message)
             else:
                 raise Return({
                     "participation_id": participation.participation_id,
@@ -289,12 +328,12 @@ class InternalHandler(object):
         except GroupNotFound as e:
             raise InternalError(404, "No such group")
         except GroupError as e:
-            raise InternalError(500, e.message)
+            raise InternalError(e.code, e.message)
 
         try:
             participation = yield groups.join_group(gamespace, group, account_id, role, notify=notify)
         except GroupError as e:
-            raise InternalError(500, e.message)
+            raise InternalError(e.code, e.message)
         except UserAlreadyJoined:
             raise InternalError(409, "User already joined")
 
@@ -315,12 +354,12 @@ class InternalHandler(object):
         except GroupNotFound as e:
             raise InternalError(404, "No such group")
         except GroupError as e:
-            raise InternalError(500, e.message)
+            raise InternalError(e.code, e.message)
 
         try:
             yield groups.leave_group(gamespace, group, account_id, notify=notify)
         except GroupError as e:
-            raise InternalError(500, e.message)
+            raise InternalError(e.code, e.message)
 
         raise Return({
             "status": "OK"

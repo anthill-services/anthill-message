@@ -95,7 +95,9 @@ class UserController(a.AdminController):
             a.links("Navigate", [
                 a.link("users", "Go back", icon="chevron-left"),
                 a.link("add_user_participation", "Join a Group", icon="plus", account=self.context.get("account")),
-                a.link("messages", "Read / Write messages", icon="pencil", account=self.context.get("account"))
+                a.link("messages", "Read / Write messages", icon="pencil", account=self.context.get("account")),
+                a.link("user_messages", "User Messages History", icon="comments-o",
+                       account_id=self.context.get("account")),
             ])
         ]
 
@@ -556,9 +558,9 @@ class MessagesController(a.AdminController):
                      account=self.context.get("account")),
             a.links("Navigate", [
                 a.link("users", "Go back", icon="chevron-left"),
-                a.link("history", "Incoming Messages History", icon="download",
-                       message_recipient_class="user", message_recipient=self.context.get("account")),
-                a.link("history", "Outgoing Messages History", icon="upload",
+                a.link("user_messages", "User Messages History", icon="comments-o",
+                       account_id=self.context.get("account")),
+                a.link("history", "Sent Messages By User", icon="upload",
                        message_sender=self.context.get("account")),
             ])
         ]
@@ -766,4 +768,85 @@ class MessagesHistoryController(a.AdminController):
                 "yes": "Yes",
                 "no": "No"
             }
+        })
+
+
+class UserMessagesController(a.AdminController):
+
+    MESSAGES_PER_PAGE = 20
+
+    def render(self, data):
+        messages = [
+            {
+                "sender": message.sender,
+                "recipient": str(message.recipient_class) + " " + str(message.recipient),
+                "time": str(message.time),
+                "delivered": "yes" if message.delivered else "no",
+                "message_type": message.message_type,
+                "payload": [a.json_view(message.payload)],
+                "id": [
+                    a.link("message", message.message_id, icon="envelope-o", message_id=message.message_id)
+                ]
+            }
+            for message in data["messages"]
+        ]
+
+        account_id = self.context.get("account_id")
+
+        return [
+            a.breadcrumbs([
+                a.link("users", "Messages"),
+                a.link("messages", "User @{0}".format(account_id), account=account_id),
+
+            ], "User Messages History"),
+            a.content("Messages", [
+                {
+                    "id": "id",
+                    "title": "ID"
+                }, {
+                    "id": "sender",
+                    "title": "From"
+                }, {
+                    "id": "recipient",
+                    "title": "Recipient"
+                }, {
+                    "id": "time",
+                    "title": "Time"
+                }, {
+                    "id": "delivered",
+                    "title": "Delivered"
+                }, {
+                    "id": "message_type",
+                    "title": "Type"
+                }, {
+                    "id": "payload",
+                    "title": "Payload",
+                    "width": "40%"
+                }], messages, "default", empty="No messages to display."),
+            a.pages(data["pages"]),
+            a.links("Navigate", [
+                a.link("messages", "Go back", icon="chevron-left", account=account_id)
+            ])
+        ]
+
+    def access_scopes(self):
+        return ["message_admin"]
+
+    @coroutine
+    @validate(account_id="int", page="int")
+    def get(self, account_id, page=1):
+
+        history = self.application.history
+
+        offset = (page - 1) * UserMessagesController.MESSAGES_PER_PAGE
+
+        messages, count = yield history.list_messages_account_with_count(
+            gamespace=self.gamespace, account_id=account_id,
+            limit=UserMessagesController.MESSAGES_PER_PAGE, offset=offset)
+
+        pages = int(math.ceil(float(count) / float(UserMessagesController.MESSAGES_PER_PAGE)))
+
+        raise Return({
+            "messages": messages,
+            "pages": pages
         })

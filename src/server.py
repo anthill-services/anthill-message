@@ -53,7 +53,8 @@ class MessagesServer(common.server.Server):
             "add_user_participation": a.AddUserParticipantController,
             "user": a.UserController,
             "messages": a.MessagesController,
-            "history": a.MessagesHistoryController
+            "history": a.MessagesHistoryController,
+            "user_messages": a.UserMessagesController
         }
 
     def get_models(self):
@@ -73,6 +74,7 @@ class MessagesServer(common.server.Server):
             (r"/group/(\w+)/(.*)", handler.ReadGroupInboxHandler),
             (r"/send/(\w+)/(\w+)", handler.SendMessageHandler),
             (r"/send", handler.SendMessagesHandler),
+            (r"/messages", handler.GetMessagesHandler),
             (r"/listen", handler.ConversationEndpointHandler)
         ]
 

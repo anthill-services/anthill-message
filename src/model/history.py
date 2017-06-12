@@ -1,12 +1,11 @@
 
 from tornado.gen import coroutine, Return
-from tornado.queues import QueueEmpty
 
 from common.model import Model
 from common.database import DatabaseError
 from common.validate import validate
 
-from . import MessageError, DeliveryFlags
+from . import MessageError, DeliveryFlags, CLASS_USER
 
 import ujson
 import logging
@@ -30,6 +29,8 @@ class MessageAdapter(object):
         self.time = data.get("message_time")
         self.message_type = data.get("message_type")
         self.payload = data.get("message_payload")
+        if isinstance(self.payload, (str, unicode)):
+            self.payload = ujson.loads(self.payload)
         self.delivered = data.get("message_delivered")
 
         flags = data.get("message_flags", "").lower().split(",")
@@ -117,26 +118,27 @@ class MessagesQuery(object):
 
             raise Return(MessageAdapter(result))
         else:
-            try:
-                result = yield self.db.query(query, *data)
-            except DatabaseError as e:
-                raise MessageQueryError("Failed to add message: " + e.args[1])
+            with (yield self.db.acquire()) as db:
+                try:
+                    result = yield db.query(query, *data)
+                except DatabaseError as e:
+                    raise MessageQueryError("Failed to add message: " + e.args[1])
 
-            count_result = 0
+                count_result = 0
 
-            if count:
-                count_result = yield self.db.get(
-                    """
-                        SELECT FOUND_ROWS() AS count;
-                    """)
-                count_result = count_result["count"]
+                if count:
+                    count_result = yield db.get(
+                        """
+                            SELECT FOUND_ROWS() AS count;
+                        """)
+                    count_result = count_result["count"]
 
-            items = map(MessageAdapter, result)
+                items = map(MessageAdapter, result)
 
-            if count:
-                raise Return((items, count_result))
+                if count:
+                    raise Return((items, count_result))
 
-            raise Return(items)
+                raise Return(items)
 
 
 class MessagesHistoryModel(Model):
@@ -161,7 +163,7 @@ class MessagesHistoryModel(Model):
                     recipient_key, time, message_type, payload, flags, delivered=False):
 
         if not isinstance(payload, dict):
-            raise MessageError("payload should be a dict")
+            raise MessageError(400, "payload should be a dict")
 
         try:
             message_id = yield self.db.insert(
@@ -174,7 +176,7 @@ class MessagesHistoryModel(Model):
                 """, gamespace, message_uuid, recipient_class, sender,
                 recipient_key, time, message_type, ujson.dumps(payload), int(delivered), flags.dump())
         except DatabaseError as e:
-            raise MessageError("Failed to add message: " + e.args[1])
+            raise MessageError(500, "Failed to add message: " + e.args[1])
         else:
             raise Return(message_id)
 
@@ -188,7 +190,7 @@ class MessagesHistoryModel(Model):
                     WHERE `message_id`=%s AND `gamespace_id`=%s;
                 """, message_id, gamespace)
         except DatabaseError as e:
-            raise MessageError("Failed to get a message: " + e.args[1])
+            raise MessageError(500, "Failed to get a message: " + e.args[1])
 
         if not message:
             raise MessageNotFound()
@@ -207,7 +209,71 @@ class MessagesHistoryModel(Model):
                     LIMIT %s;
                 """, recipient_class, recipient, gamespace, limit)
         except DatabaseError as e:
-            raise MessageError("Failed to list incoming messages: " + e.args[1])
+            raise MessageError(500, "Failed to list incoming messages: " + e.args[1])
+
+        raise Return(map(MessageAdapter, messages))
+
+    @coroutine
+    @validate(gamespace="int", account_id="int", limit="int", offset="int")
+    def list_messages_account_with_count(self, gamespace, account_id, limit=100, offset=0):
+        with (yield self.db.acquire()) as db:
+            messages = yield self.list_messages_account(gamespace, account_id, limit, offset, db=db)
+            try:
+                count_result = yield db.get(
+                    """
+                        SELECT FOUND_ROWS() AS count;
+                    """)
+            except DatabaseError as e:
+                raise MessageError(500, "Failed to count found rows for account messages: " + e.args[1])
+
+            count_result = count_result["count"]
+            result = (messages, count_result)
+            raise Return(result)
+
+    @coroutine
+    @validate(gamespace="int", account_id="int", limit="int", offset="int")
+    def list_messages_account(self, gamespace, account_id, limit=100, offset=0, db=None):
+        """
+        Returns last N..M (offset to limit) messages being sent or received by the account,
+            including the ones being sent to the groups the account participates in.
+        """
+
+        if limit < 1 or limit > 10000 or offset < 0 or offset > 10000:
+            raise MessageError(400, "Bad limit/offset")
+
+        try:
+            messages = yield (db or self.db).query(
+                # now this I call a query. yet it executes in 1ms with 40000 messages in db
+                """
+                    SELECT SQL_CALC_FOUND_ROWS * 
+                    FROM `messages` 
+                    WHERE `messages`.`gamespace_id`=%s
+                    AND (`messages`.`message_recipient_class`, `messages`.`message_recipient`) IN (
+                        SELECT `groups`.`group_class`, `groups`.`group_key` 
+                        FROM `groups`, `group_participants`
+                        WHERE `groups`.`group_class`=`messages`.`message_recipient_class` 
+                            AND `groups`.`group_key`=`messages`.`message_recipient`
+                            AND `groups`.`group_id`=`group_participants`.`group_id` 
+                            AND `group_participants`.`participation_account`=%s
+                    )
+                    UNION DISTINCT
+                    (
+                        SELECT * 
+                        FROM `messages` 
+                        WHERE `gamespace_id`=%s AND `message_recipient_class`=%s AND `message_recipient`=%s
+                    )
+                    UNION DISTINCT
+                    (
+                        SELECT * 
+                        FROM `messages` 
+                        WHERE `gamespace_id`=%s AND `message_sender`=%s
+                    )
+                    ORDER BY `message_id` DESC
+                    LIMIT %s, %s;
+                """, gamespace, str(account_id), gamespace, CLASS_USER,
+                str(account_id), gamespace, str(account_id), offset, limit)
+        except DatabaseError as e:
+            raise MessageError(500, "Failed to list incoming messages for account: " + e.args[1])
 
         raise Return(map(MessageAdapter, messages))
 
@@ -255,7 +321,7 @@ class MessagesHistoryModel(Model):
                 yield db.commit()
 
         except DatabaseError as e:
-            raise MessageError("Failed to read incoming messages: " + e.args[1])
+            raise MessageError(500, "Failed to read incoming messages: " + e.args[1])
 
     @coroutine
     def delete_messages(self, gamespace, recipient_class, recipient):
@@ -266,7 +332,7 @@ class MessagesHistoryModel(Model):
                     WHERE `message_recipient_class`=%s AND `message_recipient`=%s AND `gamespace_id`=%s;
                 """, recipient_class, recipient, gamespace)
         except DatabaseError as e:
-            raise MessageError("Failed to delete messages: " + e.args[1])
+            raise MessageError(500, "Failed to delete messages: " + e.args[1])
 
     @coroutine
     def delete_messages_like(self, gamespace, recipient_class, recipient_like):
@@ -277,7 +343,7 @@ class MessagesHistoryModel(Model):
                     WHERE `message_recipient_class` LIKE %s AND `message_recipient`=%s AND `gamespace_id`=%s;
                 """, recipient_class, recipient_like, gamespace)
         except DatabaseError as e:
-            raise MessageError("Failed to delete messages: " + e.args[1])
+            raise MessageError(500, "Failed to delete messages: " + e.args[1])
 
     @coroutine
     def delete_message(self, gamespace, message_id):
@@ -288,7 +354,7 @@ class MessagesHistoryModel(Model):
                     WHERE `message_id`=%s AND `gamespace_id`=%s;
                 """, message_id, gamespace)
         except DatabaseError as e:
-            raise MessageError("Failed to delete a message: " + e.args[1])
+            raise MessageError(500, "Failed to delete a message: " + e.args[1])
 
 
 class MessageNotFound(Exception):

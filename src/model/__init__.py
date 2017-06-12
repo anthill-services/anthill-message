@@ -7,11 +7,12 @@ CLASS_USER = "user"
 
 
 class MessageError(Exception):
-    def __init__(self, message):
+    def __init__(self, code, message):
+        self.code = code
         self.message = message
 
     def __str__(self):
-        return self.message
+        return str(self.code) + ": " + self.message
 
 
 class MessageSendError(Exception):
