@@ -6,7 +6,7 @@ import uuid
 
 from tornado.gen import coroutine, Return, Future
 from group import GroupsModel
-from . import CLASS_USER, DeliveryFlags
+from . import CLASS_USER, MessageFlags
 
 from pika import BasicProperties
 
@@ -18,6 +18,7 @@ class ProcessError(Exception):
 
 class AccountConversation(object):
 
+    ACTION = "a"
     GAMESPACE = "gsps"
     MESSAGE_UUID = "msgu"
     SENDER = "sndr"
@@ -26,6 +27,10 @@ class AccountConversation(object):
     TYPE = "type"
     PAYLOAD = "payload"
     FLAGS = "fl"
+
+    ACTION_NEW_MESSAGE = "m"
+    ACTION_MESSAGE_DELETED = "d"
+    ACTION_MESSAGE_UPDATED = "u"
 
     EXCHANGE_PREFIX = "conv"
 
@@ -46,7 +51,15 @@ class AccountConversation(object):
         self.receive_queue = None
         self.receive_consumer = None
 
-        self.handler = None
+        self.on_message = None
+        self.on_deleted = None
+        self.on_updated = None
+
+        self.actions = {
+            AccountConversation.ACTION_NEW_MESSAGE: self.__action_new_message,
+            AccountConversation.ACTION_MESSAGE_UPDATED: self.__action_message_updated,
+            AccountConversation.ACTION_MESSAGE_DELETED: self.__action_message_deleted
+        }
 
     @coroutine
     def init(self):
@@ -81,7 +94,7 @@ class AccountConversation(object):
             yield self.receive_exchange.bind(exchange=group_exchange)
 
         def receiver(m):
-            return self.handler(
+            return self.on_message(
                 self.gamespace_id,
                 m.message_uuid,
                 m.sender,
@@ -97,8 +110,14 @@ class AccountConversation(object):
 
         logging.info("Conversation for account {0} started.".format(self.account_id))
 
-    def handle(self, message_callback):
-        self.handler = message_callback
+    def set_on_message(self, callback):
+        self.on_message = callback
+
+    def set_on_deleted(self, callback):
+        self.on_deleted = callback
+
+    def set_on_updated(self, callback):
+        self.on_updated = callback
 
     # noinspection PyBroadException
     @coroutine
@@ -125,33 +144,59 @@ class AccountConversation(object):
 
         logging.info("Conversation for account {0} released.".format(self.account_id))
 
+    def __action_new_message(self, gamespace_id, message_uuid, sender, message):
+
+        try:
+            message_type = message[AccountConversation.TYPE]
+            recipient_class = message[AccountConversation.RECIPIENT_CLASS]
+            recipient_key = message[AccountConversation.RECIPIENT_KEY]
+            payload = message[AccountConversation.PAYLOAD]
+        except KeyError:
+            return
+
+        if self.on_message:
+            return self.on_message(gamespace_id, message_uuid, sender, recipient_class,
+                                   recipient_key, message_type, payload)
+
+    def __action_message_deleted(self, gamespace_id, message_uuid, sender, message):
+        if self.on_deleted:
+            return self.on_deleted(gamespace_id, message_uuid, sender)
+
+    def __action_message_updated(self, gamespace_id, message_uuid, sender, message):
+
+        try:
+            payload = message[AccountConversation.PAYLOAD]
+        except KeyError:
+            return
+
+        if self.on_updated:
+            return self.on_updated(gamespace_id, message_uuid, sender, payload)
+
     @coroutine
     def __process__(self, channel, method, properties, body):
         try:
-            payload = ujson.loads(body)
+            message = ujson.loads(body)
         except (KeyError, ValueError):
             raise ProcessError("Corrupted body")
 
         try:
-            gamespace_id = payload[AccountConversation.GAMESPACE]
-            message_uuid = payload[AccountConversation.MESSAGE_UUID]
-            sender = payload[AccountConversation.SENDER]
-            recipient_class = payload[AccountConversation.RECIPIENT_CLASS]
-            recipient_key = payload[AccountConversation.RECIPIENT_KEY]
-            message_type = payload[AccountConversation.TYPE]
-            payload = payload[AccountConversation.PAYLOAD]
+            action = message[AccountConversation.ACTION]
+            gamespace_id = message[AccountConversation.GAMESPACE]
+            message_uuid = message[AccountConversation.MESSAGE_UUID]
+            sender = message[AccountConversation.SENDER]
         except KeyError as e:
             raise ProcessError("Missing field: " + e.args[0])
 
         if str(gamespace_id) != str(self.gamespace_id):
             raise ProcessError("Bad gamespace")
 
-        if self.handler:
+        action_method = self.actions.get(action, None)
+
+        if action_method:
             # try to process the message by a listener
             # noinspection PyBroadException
             try:
-                result = yield self.handler(
-                    gamespace_id, message_uuid, sender, recipient_class, recipient_key, message_type, payload)
+                result = yield action_method(gamespace_id, message_uuid, sender, message)
             except Exception:
                 logging.exception("Failed to handle the message")
                 result = False

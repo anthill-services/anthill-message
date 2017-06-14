@@ -2,7 +2,7 @@ from tornado.gen import coroutine, Return, sleep, Future, with_timeout, TimeoutE
 from tornado.queues import Queue, QueueEmpty
 from tornado.ioloop import IOLoop
 
-from conversation import AccountConversation, DeliveryFlags
+from conversation import AccountConversation, MessageFlags
 
 from common.model import Model
 from common.rabbitconn import RabbitMQConnection
@@ -26,6 +26,21 @@ class MessagesQueueError(Exception):
 
 class MessagesQueueModel(Model):
 
+    """
+    This model represents an incoming queue of all messages being sent and delivered over messaging system.
+
+    Each message has this lifecycle:
+    1. Some party decides to send some message to someone, for example, by calling 'add_message'
+    2. That message goes into the incoming queue
+    3. Then the message workers fetch the queue constantly for processing
+    4. Upon processing, the message is tried to be delivered real time first, using recipient_class and recipient_key
+        as the queue name (such recipient should be listening on it if he's online)
+    5. Then the message may be stored depending on the flags of the message itself and whenever it was delivered
+
+    Same cycle applies for updating and deleting the message
+
+    """
+
     DELIVERY_TIMEOUT = 5
     PROCESS_TIMEOUT = 60
 
@@ -42,6 +57,10 @@ class MessagesQueueModel(Model):
         self.outgoing_message_workers = options.outgoing_message_workers
         self.message_incoming_queue_name = options.message_incoming_queue_name
         self.message_prefetch_count = options.message_prefetch_count
+
+        self.actions = {
+            AccountConversation.ACTION_NEW_MESSAGE: self.__action_new_message__
+        }
 
     # noinspection PyBroadException
     @coroutine
@@ -112,57 +131,77 @@ class MessagesQueueModel(Model):
             raise MessagesQueueError("Corrupted body")
 
         try:
+            action = message[AccountConversation.ACTION]
             gamespace_id = message[AccountConversation.GAMESPACE]
             sender = message[AccountConversation.SENDER]
             recipient_class = message[AccountConversation.RECIPIENT_CLASS]
             recipient_key = message[AccountConversation.RECIPIENT_KEY]
+        except KeyError as e:
+            raise MessagesQueueError("Missing field: " + e.args[0])
+
+        # noinspection PyBroadException
+        try:
+            action_method = self.actions.get(action, self.__action_simple_deliver__)
+
+            if action_method:
+                yield action_method(gamespace_id, sender, recipient_class, recipient_key, message)
+
+        except Exception:
+            logging.exception("Failed to deliver message")
+
+    def __action_simple_deliver__(self, gamespace_id, sender, recipient_class, recipient_key, message):
+        try:
+            message_uuid = message[AccountConversation.MESSAGE_UUID]
+        except KeyError as e:
+            raise MessagesQueueError("Missing field: " + e.args[0])
+
+        return self.__deliver_message__(message_uuid, recipient_class, recipient_key, message)
+
+    @coroutine
+    def __action_new_message__(self, gamespace_id, sender, recipient_class, recipient_key, message):
+
+        try:
+            message_uuid = message[AccountConversation.MESSAGE_UUID]
             message_type = message[AccountConversation.TYPE]
             payload = message[AccountConversation.PAYLOAD]
         except KeyError as e:
             raise MessagesQueueError("Missing field: " + e.args[0])
 
-        flags = DeliveryFlags(message.get(AccountConversation.FLAGS, []))
-
         # noinspection PyBroadException
         try:
-            yield self.__deliver_message__(
-                gamespace_id, sender, recipient_class,
-                recipient_key, message_type, payload, flags)
+            delivered = yield self.__deliver_message__(
+                message_uuid, recipient_class, recipient_key, message)
 
         except Exception:
             logging.exception("Failed to deliver message")
+            return
+
+        history = self.history
+
+        flags = MessageFlags(message.get(AccountConversation.FLAGS, []))
+
+        if delivered and (MessageFlags.REMOVE_DELIVERED in flags):
+            raise Return(delivered)
+
+        yield history.add_message(
+            gamespace_id,
+            sender,
+            message_uuid,
+            str(recipient_class),
+            str(recipient_key),
+            datetime.datetime.utcnow(),
+            message_type,
+            payload,
+            flags,
+            delivered=delivered)
+
+        raise Return(delivered)
 
     @coroutine
-    def __deliver_message__(self, gamespace_id, sender, recipient_class,
-                            recipient_key, message_type, payload, flags):
-        """
-        Tries to deliver a message to recipient (recipient_class, recipient_key)
-        :param gamespace_id: gamespace of the message
-        :param sender: account id of the sender
-        :param recipient_class: a class of recipient (user, group, etc)
-        :param recipient_key: a key in such class (account id, group id etc)
-        :param payload: a dict containing the message to be delivered
-        :param message_type: a kind of a message (like a subject)
-        :param flags: message flags
+    def __deliver_message__(self, message_uuid, recipient_class, recipient_key, message):
 
-        :returns whenever message was delivered, or not (in that case it's stored in a database)
-        """
-
-        if not isinstance(payload, dict):
-            raise MessageSendError("Payload expected to be a dict")
-
-        message_uuid = str(uuid.uuid4())
-
-        body = ujson.dumps({
-            AccountConversation.GAMESPACE: gamespace_id,
-            AccountConversation.MESSAGE_UUID: message_uuid,
-            AccountConversation.SENDER: sender,
-            AccountConversation.RECIPIENT_CLASS: recipient_class,
-            AccountConversation.RECIPIENT_KEY: recipient_key,
-            AccountConversation.TYPE: message_type,
-            AccountConversation.PAYLOAD: payload,
-            AccountConversation.FLAGS: flags.as_list()
-        })
+        if not isinstance(message, dict):
+            raise MessageSendError("Payload message to be a dict")
 
         exchange_id = AccountConversation.__id__(recipient_class, recipient_key)
 
@@ -197,6 +236,8 @@ class MessagesQueueModel(Model):
 
             from pika import BasicProperties
 
+            dumped = ujson.dumps(message)
+
             properties = BasicProperties(
                 content_type='text/plain',
                 reply_to=self.callback_queue.routing_key,
@@ -205,7 +246,7 @@ class MessagesQueueModel(Model):
             yield channel.basic_publish(
                 exchange_id,
                 '',
-                body,
+                dumped,
                 properties=properties,
                 mandatory=True)
 
@@ -221,23 +262,6 @@ class MessagesQueueModel(Model):
                 yield channel.close()
 
         logging.debug("Message '{0}' {1} been delivered.".format(message_uuid, "has" if delivered else "has not"))
-
-        history = self.history
-
-        if delivered and (DeliveryFlags.REMOVE_DELIVERED in flags):
-            raise Return(delivered)
-
-        yield history.add_message(
-            gamespace_id,
-            sender,
-            message_uuid,
-            str(recipient_class),
-            str(recipient_key),
-            datetime.datetime.utcnow(),
-            message_type,
-            payload,
-            flags,
-            delivered=delivered)
 
         raise Return(delivered)
 
@@ -325,11 +349,12 @@ class MessagesQueueModel(Model):
                 logging.error("A message '{0}' flags should be a list.".format(ujson.dumps(message)))
                 continue
 
-            flags = DeliveryFlags(flags_)
+            flags = MessageFlags(flags_)
 
             message_uuid = str(uuid.uuid4())
 
             body = ujson.dumps({
+                AccountConversation.ACTION: AccountConversation.ACTION_NEW_MESSAGE,
                 AccountConversation.GAMESPACE: gamespace,
                 AccountConversation.MESSAGE_UUID: message_uuid,
                 AccountConversation.SENDER: sender,
@@ -349,11 +374,61 @@ class MessagesQueueModel(Model):
 
         yield out_queue.join(timeout=datetime.timedelta(seconds=MessagesQueueModel.PROCESS_TIMEOUT))
 
-    @coroutine
     @validate(gamespace="int", sender="int", recipient_class="str",
-              recipient_key="str", message_type="str", payload="json",
-              flags=DeliveryFlags)
+              recipient_key="str", message_type="str", payload="json_dict",
+              flags=MessageFlags)
     def add_message(self, gamespace, sender, recipient_class, recipient_key, message_type, payload, flags):
+
+        message_uuid = str(uuid.uuid4())
+
+        message = {
+            AccountConversation.ACTION: AccountConversation.ACTION_NEW_MESSAGE,
+            AccountConversation.GAMESPACE: gamespace,
+            AccountConversation.MESSAGE_UUID: message_uuid,
+            AccountConversation.SENDER: sender,
+            AccountConversation.RECIPIENT_CLASS: recipient_class,
+            AccountConversation.RECIPIENT_KEY: recipient_key,
+            AccountConversation.TYPE: message_type,
+            AccountConversation.PAYLOAD: payload,
+            AccountConversation.FLAGS: flags.as_list()
+        }
+
+        return self.__enqueue_message__(message)
+
+    @validate(gamespace="int", sender="int", recipient_class="str",
+              recipient_key="str", message_uuid="str")
+    def delete_message(self, gamespace, sender, recipient_class, recipient_key, message_uuid):
+
+        message = {
+            AccountConversation.ACTION: AccountConversation.ACTION_MESSAGE_DELETED,
+            AccountConversation.GAMESPACE: gamespace,
+            AccountConversation.MESSAGE_UUID: message_uuid,
+            AccountConversation.SENDER: sender,
+            AccountConversation.RECIPIENT_CLASS: recipient_class,
+            AccountConversation.RECIPIENT_KEY: recipient_key
+        }
+
+        return self.__enqueue_message__(message)
+
+    @validate(gamespace="int", sender="int", recipient_class="str",
+              recipient_key="str", message_uuid="str", payload="json_dict")
+    def update_message(self, gamespace, sender, recipient_class, recipient_key, message_uuid, payload):
+
+        message = {
+            AccountConversation.ACTION: AccountConversation.ACTION_MESSAGE_UPDATED,
+            AccountConversation.GAMESPACE: gamespace,
+            AccountConversation.MESSAGE_UUID: message_uuid,
+            AccountConversation.SENDER: sender,
+            AccountConversation.RECIPIENT_CLASS: recipient_class,
+            AccountConversation.RECIPIENT_KEY: recipient_key,
+            AccountConversation.PAYLOAD: payload,
+        }
+
+        return self.__enqueue_message__(message)
+
+    @coroutine
+    @validate(message="json_dict")
+    def __enqueue_message__(self, message):
 
         channel = yield self.connection.channel()
 
@@ -363,18 +438,7 @@ class MessagesQueueModel(Model):
 
         # noinspection PyBroadException
         try:
-            message_uuid = str(uuid.uuid4())
-
-            body = ujson.dumps({
-                AccountConversation.GAMESPACE: gamespace,
-                AccountConversation.MESSAGE_UUID: message_uuid,
-                AccountConversation.SENDER: sender,
-                AccountConversation.RECIPIENT_CLASS: recipient_class,
-                AccountConversation.RECIPIENT_KEY: recipient_key,
-                AccountConversation.TYPE: message_type,
-                AccountConversation.PAYLOAD: payload,
-                AccountConversation.FLAGS: flags.as_list()
-            })
+            body = ujson.dumps(message)
 
             f = Future()
 

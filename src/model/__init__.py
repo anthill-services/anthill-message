@@ -20,5 +20,10 @@ class MessageSendError(Exception):
         self.message = message
 
 
-class DeliveryFlags(Flags):
+class MessageFlags(Flags):
+    # This message will be removed once delivered
     REMOVE_DELIVERED = 'remove_delivered'
+    # This message can be edited by anyone who has message's UUID
+    EDITABLE = 'editable'
+    # This message can be deleted by anyone who has message's UUID
+    DELETABLE = 'deletable'

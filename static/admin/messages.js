@@ -13,9 +13,10 @@
             {
                 $('.messages-notice').remove();
 
-                var id = payload["message_id"].slice(-8);
+                var uuid = payload["message_id"];
+                var id = uuid.slice(-8);
 
-                var item = $('<li role="presentation"></li>').appendTo(zis.messages_list);
+                var item = $('<li id="#pill_' + uuid + '" role="presentation"></li>').appendTo(zis.messages_list);
 
                 var node = $('<a href="#"><i class="fa fa-envelope-o" aria-hidden="true"></i> ' +
                     id + '</a>').appendTo(item).click(function()
@@ -24,9 +25,22 @@
                     return false;
                 });
 
-                zis.messages[id] = payload;
+                zis.messages[uuid] = payload;
 
                 notify_success("New message received!");
+
+                return true;
+            });
+
+            this.ws.handle("message_deleted", function(payload)
+            {
+                var uuid = payload["message_id"];
+
+                $(document.getElementById('header_' + uuid)).remove();
+                $(document.getElementById('message_' + uuid)).remove();
+                $(document.getElementById('pill_' + uuid)).remove();
+
+                delete zis.messages[uuid];
 
                 return true;
             });
@@ -85,9 +99,9 @@
                             "title": "Other Flags",
                             "items": {
                                 "type": "string",
-                                "enum": ["remove_delivered"],
+                                "enum": ["remove_delivered", "editable", "deletable"],
                                 "options": {
-                                    "enum_titles": ["Delete once delivered"]
+                                    "enum_titles": ["Delete once delivered", "Can be updated", "Can be deleted"]
                                 }
                             }
                         }
@@ -191,15 +205,40 @@
         {
             var zis = this;
 
-            var id = message["message_id"].slice(-8);
-            var s = this.messages[id];
+            var uuid = message["message_id"];
+
+            var s = this.messages[uuid];
+            var id = uuid.slice(-8);
 
             if (s.tab_header == null)
             {
-                s.tab_header = $('<li><a href="#message_' + id + '" data-toggle="tab">' + id + '</a></li>').
+                s.tab_header = $('<li id="#header_' + uuid + '"><a href="#message_' + uuid + '" data-toggle="tab">' +
+                    '<i class="fa fa-envelope-o" aria-hidden="true"></i> ' + id + '</a></li>').
                     appendTo(this.tabs_header);
-                s.tab_content = $('<div class="tab-pane" id="message_' + id + '"></div>').appendTo(this.tabs_content);
+                s.tab_content = $('<div class="tab-pane" id="message_' + uuid + '"></div>').appendTo(this.tabs_content);
                 s.tab_properties = $('<div></div>').appendTo(s.tab_content);
+
+                var tab_controls = $('<div></div>').appendTo(s.tab_content);
+                var buttons = $('<div class="btn-group" role="group"></div>').appendTo(tab_controls);
+
+                $('<button type="button" class="btn btn-danger">Delete</button>').appendTo(buttons).click(function()
+                {
+                    zis.ws.request("delete_message", {
+                        "message_id": uuid,
+                        "sender": zis.account
+                    }).done(function(payload)
+                    {
+                        notify_success("Message delete request was sent!");
+                    }).fail(function(code, message, data)
+                    {
+                        notify_error("Error " + code + ": " + message);
+                    });
+                });
+
+                $('<button type="button" class="btn btn-primary">Update</button>').appendTo(buttons).click(function()
+                {
+                    //
+                });
             }
 
             s.tab_header.find('a').tab('show');

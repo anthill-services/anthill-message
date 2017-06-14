@@ -7,7 +7,7 @@ from common.model import Model
 from common.options import options
 from common.validate import validate
 
-from . import MessageError, DeliveryFlags
+from . import MessageError, MessageFlags
 
 
 class GroupAdapter(object):
@@ -230,7 +230,7 @@ class GroupsModel(Model):
         if notify:
             yield self.app.message_queue.add_message(
                 gamespace, account, group.group_class, participation.calculate_recipient(),
-                GroupsModel.MESSAGE_PLAYER_JOINED, notify, DeliveryFlags())
+                GroupsModel.MESSAGE_PLAYER_JOINED, notify, MessageFlags())
 
         raise Return(participation)
 
@@ -283,7 +283,7 @@ class GroupsModel(Model):
         if notify:
             yield self.app.message_queue.add_message(
                 gamespace, account, group.group_class, participation.calculate_recipient(),
-                GroupsModel.MESSAGE_PLAYER_LEFT, notify, DeliveryFlags())
+                GroupsModel.MESSAGE_PLAYER_LEFT, notify, MessageFlags())
 
     @coroutine
     @validate(gamespace="int", group_id="int", account="int")

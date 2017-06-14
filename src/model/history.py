@@ -4,8 +4,9 @@ from tornado.gen import coroutine, Return
 from common.model import Model
 from common.database import DatabaseError
 from common.validate import validate
+from common.profile import Profile, ProfileError
 
-from . import MessageError, DeliveryFlags, CLASS_USER
+from . import MessageError, MessageFlags, CLASS_USER
 
 import ujson
 import logging
@@ -35,7 +36,17 @@ class MessageAdapter(object):
 
         flags = data.get("message_flags", "").lower().split(",")
 
-        self.flags = DeliveryFlags(flags)
+        self.flags = MessageFlags(flags)
+
+    def dump(self):
+        return {
+            "recipient_class": self.recipient_class,
+            "recipient": self.recipient,
+            "sender": self.sender,
+            "time": self.time,
+            "message_type": self.message_type,
+            "payload": self.payload
+        }
 
 
 class MessagesQuery(object):
@@ -143,8 +154,9 @@ class MessagesQuery(object):
 
 class MessagesHistoryModel(Model):
 
-    def __init__(self, db):
+    def __init__(self, db, app):
         self.db = db
+        self.app = app
 
     def get_setup_tables(self):
         return ["messages"]
@@ -158,7 +170,7 @@ class MessagesHistoryModel(Model):
     @coroutine
     @validate(gamespace="int", sender="int", message_uuid="str", recipient_class="str",
               recipient_key="str", time="datetime", message_type="str", payload="json",
-              flags=DeliveryFlags, delivered="bool")
+              flags=MessageFlags, delivered="bool")
     def add_message(self, gamespace, sender, message_uuid, recipient_class,
                     recipient_key, time, message_type, payload, flags, delivered=False):
 
@@ -296,7 +308,7 @@ class MessagesHistoryModel(Model):
                 for m in map(MessageAdapter, messages):
                     recv = yield receiver(m)
                     if recv:
-                        if DeliveryFlags.REMOVE_DELIVERED in m.flags:
+                        if MessageFlags.REMOVE_DELIVERED in m.flags:
                             remove_ids.append(m.message_id)
                         else:
                             mark_delivered_ids.append(m.message_id)
@@ -355,6 +367,114 @@ class MessagesHistoryModel(Model):
                 """, message_id, gamespace)
         except DatabaseError as e:
             raise MessageError(500, "Failed to delete a message: " + e.args[1])
+
+    @coroutine
+    def delete_message_concurrent(self, gamespace, sender, message_uuid):
+        with (yield self.db.acquire(auto_commit=False)) as db:
+            try:
+                message = yield db.get(
+                    """
+                        SELECT `message_recipient_class`, `message_recipient`, `message_flags`, `message_sender`
+                        FROM `messages`
+                        WHERE `message_uuid`=%s AND `gamespace_id`=%s
+                        LIMIT 1
+                        FOR UPDATE;
+                    """, message_uuid, gamespace)
+
+                if message is None:
+                    raise MessageNotFound()
+
+                # sender can always delete his message
+                if str(message["message_sender"]) != str(sender):
+                    flags = MessageFlags(message["message_flags"].lower().split(","))
+
+                    if MessageFlags.DELETABLE not in flags:
+                        raise MessageError(409, "This message is not deletable")
+
+                message_recipient_class = message["message_recipient_class"]
+                message_recipient = message["message_recipient"]
+
+                yield self.app.message_queue.delete_message(
+                    gamespace, sender, message_recipient_class, message_recipient, message_uuid)
+
+                yield db.execute(
+                    """
+                        DELETE FROM `messages`
+                        WHERE `message_uuid`=%s AND `gamespace_id`=%s
+                        LIMIT 1;
+                    """, message_uuid, gamespace)
+
+            except DatabaseError as e:
+                raise MessageError(500, "Failed to delete a message: " + e.args[1])
+            finally:
+                yield db.commit()
+
+    @coroutine
+    def update_message_concurrent(self, gamespace, sender, message_uuid, update):
+        with (yield self.db.acquire(auto_commit=False)) as db:
+            try:
+                message = yield db.get(
+                    """
+                        SELECT `message_recipient_class`, `message_recipient`, `message_payload`, 
+                            `message_flags`, `message_sender`
+                        FROM `messages`
+                        WHERE `message_uuid`=%s AND `gamespace_id`=%s
+                        LIMIT 1
+                        FOR UPDATE;
+                    """, message_uuid, gamespace)
+
+                if message is None:
+                    raise MessageNotFound()
+
+                # sender can always edit his message
+                if str(message["message_sender"]) != str(sender):
+                    flags = MessageFlags(message["message_flags"].lower().split(","))
+
+                    if MessageFlags.EDITABLE not in flags:
+                        raise MessageError(409, "This message is not editable")
+
+                message_recipient_class = message["message_recipient_class"]
+                message_recipient = message["message_recipient"]
+                message_payload = message["message_payload"]
+
+                try:
+                    updated = Profile.merge_data(message_payload, update, None, merge=True)
+                except ProfileError as e:
+                    raise MessageError(400, e.message)
+
+                yield self.app.message_queue.update_message(
+                    gamespace, sender, message_recipient_class, message_recipient, message_uuid, updated)
+
+                yield db.execute(
+                    """
+                        UPDATE `messages`
+                        SET `message_payload`=%s
+                        WHERE `message_uuid`=%s AND `gamespace_id`=%s
+                        LIMIT 1;
+                    """, ujson.dumps(updated), message_uuid, gamespace)
+
+            except DatabaseError as e:
+                raise MessageError(500, "Failed to delete a message: " + e.args[1])
+            finally:
+                yield db.commit()
+
+    @coroutine
+    def get_message_uuid(self, gamespace, message_uuid):
+        try:
+            message = yield self.db.get(
+                """
+                    SELECT *
+                    FROM `messages`
+                    WHERE `message_uuid`=%s AND `gamespace_id`=%s
+                    LIMIT 1;
+                """, message_uuid, gamespace)
+        except DatabaseError as e:
+            raise MessageError(500, "Failed to get a message: " + e.args[1])
+
+        if not message:
+            raise MessageNotFound()
+
+        raise Return(MessageAdapter(message))
 
 
 class MessageNotFound(Exception):

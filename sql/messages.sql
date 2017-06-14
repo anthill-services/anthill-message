@@ -9,8 +9,9 @@ CREATE TABLE `messages` (
   `message_type` varchar(64) NOT NULL,
   `message_payload` json NOT NULL,
   `message_delivered` tinyint(1) NOT NULL DEFAULT '0',
-  `message_flags` set('REMOVE_DELIVERED') DEFAULT NULL,
+  `message_flags` set('REMOVE_DELIVERED','EDITABLE','DELETABLE') DEFAULT NULL,
   PRIMARY KEY (`message_id`),
+  UNIQUE KEY `message_uuid` (`message_uuid`),
   KEY `message_recipient` (`message_recipient`),
   KEY `message_sender` (`message_sender`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;

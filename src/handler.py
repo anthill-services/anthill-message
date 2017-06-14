@@ -14,8 +14,8 @@ from common.validate import validate
 from model.group import GroupParticipantNotFound, GroupNotFound, GroupsModel, GroupError, UserAlreadyJoined, \
     GroupAdapter
 
-from model.history import MessageQueryError, MessageError
-from model import MessageSendError, DeliveryFlags, CLASS_USER
+from model.history import MessageQueryError, MessageError, MessageNotFound
+from model import MessageSendError, MessageFlags, CLASS_USER
 
 import logging
 import common
@@ -72,6 +72,7 @@ class ReadGroupInboxHandler(AuthenticatedHandler):
                     "recipient_class": message.recipient_class,
                     "sender": message.sender,
                     "recipient": message.recipient,
+                    "gamespace": int(gamespace_id),
                     "time": str(message.time),
                     "type": message.message_type,
                     "payload": message.payload
@@ -81,7 +82,59 @@ class ReadGroupInboxHandler(AuthenticatedHandler):
         })
 
 
-class GetMessagesHandler(AuthenticatedHandler):
+class MessageHandler(AuthenticatedHandler):
+    @scoped()
+    @coroutine
+    def get(self, uuid):
+        history = self.application.history
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        try:
+            message = yield history.get_message_uuid(gamespace_id, uuid)
+        except MessageNotFound:
+            raise HTTPError(404, "No such message")
+        except MessageError as e:
+            raise HTTPError(e.code, e.message)
+
+        self.dumps(message.dump())
+
+    @scoped()
+    @coroutine
+    def update(self, uuid):
+
+        try:
+            payload = ujson.loads(self.get_argument("payload"))
+        except (KeyError, ValueError):
+            raise HTTPError(400, "Payload is corrupted")
+
+        history = self.application.history
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+        account_id = self.token.account
+
+        try:
+            yield history.update_message_concurrent(gamespace_id, account_id, uuid, payload)
+        except MessageNotFound:
+            raise HTTPError(404, "No such message")
+        except MessageError as e:
+            raise HTTPError(e.code, e.message)
+
+    @scoped()
+    @coroutine
+    def delete(self, uuid):
+
+        history = self.application.history
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+        account_id = self.token.account
+
+        try:
+            yield history.delete_message_concurrent(gamespace_id, account_id, uuid)
+        except MessageNotFound:
+            raise HTTPError(404, "No such message")
+        except MessageError as e:
+            raise HTTPError(e.code, e.message)
+
+
+class ReadMessagesHandler(AuthenticatedHandler):
     @scoped()
     @coroutine
     def get(self):
@@ -111,6 +164,7 @@ class GetMessagesHandler(AuthenticatedHandler):
                     "recipient_class": message.recipient_class,
                     "sender": message.sender,
                     "recipient": message.recipient,
+                    "gamespace": int(gamespace_id),
                     "time": str(message.time),
                     "type": message.message_type,
                     "payload": message.payload
@@ -173,7 +227,11 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
             raise HTTPError(400, "Bad account")
 
         self.conversation = yield online.conversation(gamespace, account_id)
-        self.conversation.handle(self._message)
+
+        self.conversation.set_on_message(self._message)
+        self.conversation.set_on_deleted(self._deleted)
+        self.conversation.set_on_updated(self._updated)
+
         yield self.conversation.init()
 
         logging.debug("Exchange has been opened!")
@@ -197,6 +255,37 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
 
         raise Return(True)
 
+    @coroutine
+    def _deleted(self, gamespace_id, message_id, sender):
+
+        try:
+            yield self.rpc(
+                self,
+                "message_deleted",
+                gamespace_id=gamespace_id,
+                sender=sender,
+                message_id=message_id)
+        except JsonRPCError as e:
+            raise Return(False)
+
+        raise Return(True)
+
+    @coroutine
+    def _updated(self, gamespace_id, message_id, sender, payload):
+
+        try:
+            yield self.rpc(
+                self,
+                "message_updated",
+                gamespace_id=gamespace_id,
+                sender=sender,
+                message_id=message_id,
+                payload=payload)
+        except JsonRPCError as e:
+            raise Return(False)
+
+        raise Return(True)
+
     @validate(recipient_class="str", recipient_key="str", message_type="str", message="json_dict",
               flags="json_list_of_strings")
     def send_message(self, recipient_class, recipient_key, message_type, message, flags):
@@ -213,7 +302,50 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
             recipient_key,
             message_type,
             message,
-            DeliveryFlags(flags))
+            MessageFlags(flags))
+
+    @coroutine
+    @validate(message_id="str")
+    def delete_message(self, message_id):
+
+        sender = str(self.token.account)
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        history = self.application.history
+
+        try:
+            result = yield history.delete_message_concurrent(
+                gamespace_id,
+                sender,
+                message_id)
+        except MessageNotFound:
+            raise JsonRPCError(404, "No such message")
+        except MessageError as e:
+            raise JsonRPCError(e.code, e.message)
+
+        raise Return(result)
+
+    @coroutine
+    @validate(message_id="str", payload="json_dict")
+    def update_message(self, message_id, payload):
+
+        sender = str(self.token.account)
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        history = self.application.history
+
+        try:
+            result = yield history.update_message_concurrent(
+                gamespace_id,
+                sender,
+                message_id,
+                payload)
+        except MessageNotFound:
+            raise JsonRPCError(404, "No such message")
+        except MessageError as e:
+            raise JsonRPCError(e.code, e.message)
+
+        raise Return(result)
 
     @coroutine
     def closed(self):
@@ -264,7 +396,7 @@ class SendMessageHandler(AuthenticatedHandler):
         try:
             yield message_queue.add_message(
                 gamespace_id, self.token.account, recipient_class, recipient_key, message_type, payload,
-                DeliveryFlags(message_flags))
+                MessageFlags(message_flags))
 
         except MessageSendError as e:
             raise HTTPError(400, "Failed to deliver a message: " + e.message)
@@ -380,4 +512,4 @@ class InternalHandler(object):
 
         yield message_queue.add_message(
             gamespace, sender, recipient_class, recipient_key,
-            message_type, payload, DeliveryFlags(flags))
+            message_type, payload, MessageFlags(flags))

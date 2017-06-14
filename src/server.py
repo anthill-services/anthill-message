@@ -28,7 +28,7 @@ class MessagesServer(common.server.Server):
             user=options.db_username,
             password=options.db_password)
 
-        self.history = MessagesHistoryModel(self.db)
+        self.history = MessagesHistoryModel(self.db, self)
         self.groups = GroupsModel(self.db, self)
         self.online = OnlineModel(self.groups, self.history)
         self.message_queue = MessagesQueueModel(self.history)
@@ -74,7 +74,8 @@ class MessagesServer(common.server.Server):
             (r"/group/(\w+)/(.*)", handler.ReadGroupInboxHandler),
             (r"/send/(\w+)/(\w+)", handler.SendMessageHandler),
             (r"/send", handler.SendMessagesHandler),
-            (r"/messages", handler.GetMessagesHandler),
+            (r"/messages", handler.ReadMessagesHandler),
+            (r"/message/(.*)", handler.MessageHandler),
             (r"/listen", handler.ConversationEndpointHandler)
         ]
 

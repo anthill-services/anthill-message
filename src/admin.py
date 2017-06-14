@@ -10,8 +10,8 @@ from tornado.gen import coroutine, Return
 from tornado.ioloop import IOLoop
 
 from model.group import GroupError, GroupNotFound, GroupExistsError, UserAlreadyJoined, GroupParticipantNotFound
-from model.history import MessageError
-from model import CLASS_USER, DeliveryFlags
+from model.history import MessageError, MessageNotFound
+from model import CLASS_USER, MessageFlags
 
 import logging
 import ujson
@@ -587,13 +587,15 @@ class MessagesStreamController(a.StreamAdminController):
             raise a.ActionError("Bad account")
 
         self.conversation = yield online.conversation(self.gamespace, account_id)
-        self.conversation.handle(self._message)
+        self.conversation.set_on_message(self._on_message)
+        self.conversation.set_on_deleted(self._on_message_deleted)
+        self.conversation.set_on_updated(self._on_message_updated)
         self.conversation.init()
 
         logging.debug("Exchange has been opened!")
 
     @coroutine
-    def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
+    def _on_message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
         try:
             result = yield self.request(
                 self,
@@ -604,6 +606,35 @@ class MessagesStreamController(a.StreamAdminController):
                 recipient_class=recipient_class,
                 recipient_key=recipient_key,
                 message_type=message_type,
+                payload=payload)
+        except JsonRPCError:
+            raise Return(False)
+
+        raise Return(result)
+
+    @coroutine
+    def _on_message_deleted(self, gamespace_id, message_id, sender):
+        try:
+            result = yield self.request(
+                self,
+                "message_deleted",
+                gamespace_id=gamespace_id,
+                sender=sender,
+                message_id=message_id)
+        except JsonRPCError:
+            raise Return(False)
+
+        raise Return(result)
+
+    @coroutine
+    def _on_message_updated(self, gamespace_id, message_id, sender, payload):
+        try:
+            result = yield self.request(
+                self,
+                "message_updated",
+                gamespace_id=gamespace_id,
+                sender=sender,
+                message_id=message_id,
                 payload=payload)
         except JsonRPCError:
             raise Return(False)
@@ -624,7 +655,44 @@ class MessagesStreamController(a.StreamAdminController):
             recipient_key,
             message_type,
             message,
-            DeliveryFlags(flags))
+            MessageFlags(flags))
+
+    @coroutine
+    @validate(message_id="str", sender="int")
+    def delete_message(self, message_id, sender):
+
+        gamespace_id = self.gamespace
+        history = self.application.history
+
+        try:
+            yield history.delete_message_concurrent(
+                gamespace_id,
+                sender,
+                message_id)
+        except MessageNotFound:
+            raise a.StreamCommandError(404, "No such message")
+        except MessageError as e:
+            raise a.StreamCommandError(e.code, e.message)
+
+    @coroutine
+    @validate(message_id="str", sender="int", payload="json_dict")
+    def update_message(self, message_id, sender, payload):
+
+        gamespace_id = self.gamespace
+        history = self.application.history
+
+        try:
+            result = yield history.update_message_concurrent(
+                gamespace_id,
+                sender,
+                message_id,
+                payload)
+        except MessageNotFound:
+            raise a.StreamCommandError(404, "No such message")
+        except MessageError as e:
+            raise a.StreamCommandError(e.code, e.message)
+
+        raise Return(result)
 
     @coroutine
     def opened(self, **kwargs):
