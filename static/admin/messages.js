@@ -249,6 +249,10 @@
                     "value": message["message_id"]
                 },
                 {
+                    "title": "Time",
+                    "value": message["time"]
+                },
+                {
                     "title": "Sender",
                     "value": s["sender"],
                     "decorator": "label",

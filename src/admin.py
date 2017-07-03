@@ -595,7 +595,8 @@ class MessagesStreamController(a.StreamAdminController):
         logging.debug("Exchange has been opened!")
 
     @coroutine
-    def _on_message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
+    def _on_message(self, gamespace_id, message_id, sender,
+                    recipient_class, recipient_key, message_type, payload, time):
         try:
             result = yield self.request(
                 self,
@@ -606,7 +607,8 @@ class MessagesStreamController(a.StreamAdminController):
                 recipient_class=recipient_class,
                 recipient_key=recipient_key,
                 message_type=message_type,
-                payload=payload)
+                payload=payload,
+                time=str(time))
         except JsonRPCError:
             raise Return(False)
 

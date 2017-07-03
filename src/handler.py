@@ -146,32 +146,39 @@ class ReadMessagesHandler(AuthenticatedHandler):
         account_id = self.token.account
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
-        try:
-            messages, count = yield history.list_messages_account_with_count(
-                gamespace_id, account_id, limit=limit, offset=offset)
-        except MessageError as e:
-            raise HTTPError(e.code, "Account is not joined in that group")
+        with (yield history.db.acquire()) as db:
+            try:
+                messages, count = yield history.list_messages_account_with_count_db(
+                    gamespace_id, account_id, db=db, limit=limit, offset=offset)
+            except MessageError as e:
+                raise HTTPError(e.code, "Account is not joined in that group")
 
-        self.dumps({
-            "reply_to": {
-                "recipient_class": CLASS_USER,
-                "recipient": str(account_id),
-            },
-            "total_count": count,
-            "messages": [
-                {
-                    "uuid": message.message_uuid,
-                    "recipient_class": message.recipient_class,
-                    "sender": message.sender,
-                    "recipient": message.recipient,
-                    "gamespace": int(gamespace_id),
-                    "time": str(message.time),
-                    "type": message.message_type,
-                    "payload": message.payload
-                }
-                for message in reversed(messages)
-            ]
-        })
+            read_messages = yield history.list_read_messages(gamespace_id, account_id)
+
+            self.dumps({
+                "reply_to": {
+                    "recipient_class": CLASS_USER,
+                    "recipient": str(account_id),
+                },
+                "last_read_messages": [
+                    read_message.dump()
+                    for read_message in read_messages
+                ],
+                "total_count": count,
+                "messages": [
+                    {
+                        "uuid": message.message_uuid,
+                        "recipient_class": message.recipient_class,
+                        "sender": message.sender,
+                        "recipient": message.recipient,
+                        "gamespace": int(gamespace_id),
+                        "time": str(message.time),
+                        "type": message.message_type,
+                        "payload": message.payload
+                    }
+                    for message in reversed(messages)
+                ]
+            })
 
 
 class JoinGroupHandler(AuthenticatedHandler):
@@ -237,7 +244,8 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         logging.debug("Exchange has been opened!")
 
     @coroutine
-    def _message(self, gamespace_id, message_id, sender, recipient_class, recipient_key, message_type, payload):
+    def _message(self, gamespace_id, message_id, sender, recipient_class,
+                 recipient_key, message_type, payload, time):
 
         try:
             yield self.rpc(
@@ -249,7 +257,8 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
                 recipient_class=recipient_class,
                 recipient_key=recipient_key,
                 message_type=message_type,
-                payload=payload)
+                payload=payload,
+                time=str(time))
         except JsonRPCError as e:
             raise Return(False)
 
@@ -320,6 +329,27 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
                 message_id)
         except MessageNotFound:
             raise JsonRPCError(404, "No such message")
+        except MessageError as e:
+            raise JsonRPCError(e.code, e.message)
+
+        raise Return(result)
+
+    @coroutine
+    @validate(message_id="str")
+    def mark_as_read(self, message_id):
+
+        account_id = str(self.token.account)
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        history = self.application.history
+
+        try:
+            result = yield history.mark_message_as_read(
+                gamespace_id,
+                account_id,
+                message_id)
+        except MessageNotFound:
+            raise JsonRPCError(404, "No such message.")
         except MessageError as e:
             raise JsonRPCError(e.code, e.message)
 

@@ -8,6 +8,7 @@ from common.model import Model
 from common.rabbitconn import RabbitMQConnection
 from common.options import options
 from common.validate import validate
+from common.access import utc_time
 
 from . import MessageSendError
 
@@ -164,6 +165,7 @@ class MessagesQueueModel(Model):
             message_uuid = message[AccountConversation.MESSAGE_UUID]
             message_type = message[AccountConversation.TYPE]
             payload = message[AccountConversation.PAYLOAD]
+            time = message[AccountConversation.TIME]
         except KeyError as e:
             raise MessagesQueueError("Missing field: " + e.args[0])
 
@@ -189,7 +191,7 @@ class MessagesQueueModel(Model):
             message_uuid,
             str(recipient_class),
             str(recipient_key),
-            datetime.datetime.utcnow(),
+            datetime.datetime.fromtimestamp(time),
             message_type,
             payload,
             flags,
@@ -332,6 +334,8 @@ class MessagesQueueModel(Model):
 
         out_queue = Queue()
 
+        time = utc_time()
+
         for message in messages:
 
             try:
@@ -362,7 +366,8 @@ class MessagesQueueModel(Model):
                 AccountConversation.RECIPIENT_KEY: recipient_key,
                 AccountConversation.TYPE: message_type,
                 AccountConversation.PAYLOAD: payload,
-                AccountConversation.FLAGS: flags.as_list()
+                AccountConversation.FLAGS: flags.as_list(),
+                AccountConversation.TIME: time
             })
 
             out_queue.put_nowait(body)
@@ -390,7 +395,8 @@ class MessagesQueueModel(Model):
             AccountConversation.RECIPIENT_KEY: recipient_key,
             AccountConversation.TYPE: message_type,
             AccountConversation.PAYLOAD: payload,
-            AccountConversation.FLAGS: flags.as_list()
+            AccountConversation.FLAGS: flags.as_list(),
+            AccountConversation.TIME: utc_time()
         }
 
         return self.__enqueue_message__(message)

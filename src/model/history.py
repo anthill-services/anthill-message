@@ -20,6 +20,22 @@ class MessageQueryError(Exception):
         return self.message
 
 
+class LastReadMessageAdapter(object):
+    def __init__(self, data):
+        self.recipient_class = data.get("message_recipient_class")
+        self.recipient = data.get("message_recipient")
+        self.time = data.get("last_message_time")
+        self.uuid = data.get("last_message_uuid")
+
+    def dump(self):
+        return {
+            "recipient_class": self.recipient_class,
+            "recipient": self.recipient,
+            "time": str(self.time),
+            "uuid": self.uuid
+        }
+
+
 class MessageAdapter(object):
     def __init__(self, data):
         self.message_id = data.get("message_id")
@@ -229,18 +245,24 @@ class MessagesHistoryModel(Model):
     @validate(gamespace="int", account_id="int", limit="int", offset="int")
     def list_messages_account_with_count(self, gamespace, account_id, limit=100, offset=0):
         with (yield self.db.acquire()) as db:
-            messages = yield self.list_messages_account(gamespace, account_id, limit, offset, db=db)
-            try:
-                count_result = yield db.get(
-                    """
-                        SELECT FOUND_ROWS() AS count;
-                    """)
-            except DatabaseError as e:
-                raise MessageError(500, "Failed to count found rows for account messages: " + e.args[1])
-
-            count_result = count_result["count"]
-            result = (messages, count_result)
+            result = yield self.list_messages_account_with_count_db(gamespace, account_id, db, limit, offset)
             raise Return(result)
+
+    @coroutine
+    @validate(gamespace="int", account_id="int", limit="int", offset="int")
+    def list_messages_account_with_count_db(self, gamespace, account_id, db, limit=100, offset=0):
+        messages = yield self.list_messages_account(gamespace, account_id, limit, offset, db=db)
+        try:
+            count_result = yield db.get(
+                """
+                    SELECT FOUND_ROWS() AS count;
+                """)
+        except DatabaseError as e:
+            raise MessageError(500, "Failed to count found rows for account messages: " + e.args[1])
+
+        count_result = count_result["count"]
+        result = (messages, count_result)
+        raise Return(result)
 
     @coroutine
     @validate(gamespace="int", account_id="int", limit="int", offset="int")
@@ -459,6 +481,20 @@ class MessagesHistoryModel(Model):
                 yield db.commit()
 
     @coroutine
+    def list_read_messages(self, gamespace_id, account_id, db=None):
+        try:
+            read_messages = yield (db or self.db).query(
+                """
+                    SELECT *
+                    FROM `last_read_message`
+                    WHERE `gamespace_id`=%s AND `account_id`=%s;
+                """, gamespace_id, account_id)
+        except DatabaseError as e:
+            raise MessageError(500, "Failed to get a message: " + e.args[1])
+
+        raise Return(map(LastReadMessageAdapter, read_messages))
+
+    @coroutine
     def get_message_uuid(self, gamespace, message_uuid):
         try:
             message = yield self.db.get(
@@ -475,6 +511,47 @@ class MessagesHistoryModel(Model):
             raise MessageNotFound()
 
         raise Return(MessageAdapter(message))
+
+    @coroutine
+    def mark_message_as_read(self, gamespace, account_id, message_uuid):
+        with (yield self.db.acquire()) as db:
+            try:
+                message = yield db.get(
+                    """
+                        SELECT *
+                        FROM `messages`
+                        WHERE `message_uuid`=%s AND `gamespace_id`=%s
+                        LIMIT 1;
+                    """, message_uuid, gamespace)
+            except DatabaseError as e:
+                raise MessageError(500, "Failed to get a message: " + e.args[1])
+
+            if not message:
+                raise MessageNotFound()
+
+            recipient_class = message["message_recipient_class"]
+            recipient = message["message_recipient"]
+            time = message["message_time"]
+
+            rows_updated = yield db.execute(
+                # this statement add a new record and updates if a record already exists, but only
+                # if the message is newer than the older one
+                """
+                INSERT INTO `last_read_message`
+                (gamespace_id, account_id, message_recipient_class, 
+                    message_recipient, last_message_time, last_message_uuid) 
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    last_message_time = IF(
+                        VALUES(last_message_time) > last_message_time,
+                        VALUES(last_message_time),
+                        last_message_time
+                    ),
+                    last_message_uuid = VALUES(last_message_uuid);
+                """, gamespace, account_id, recipient_class, recipient, time, message_uuid
+            )
+
+            raise Return(bool(rows_updated))
 
 
 class MessageNotFound(Exception):

@@ -24,6 +24,7 @@ class AccountConversation(object):
     SENDER = "sndr"
     RECIPIENT_CLASS = "class"
     RECIPIENT_KEY = "key"
+    TIME = "tm"
     TYPE = "type"
     PAYLOAD = "payload"
     FLAGS = "fl"
@@ -101,7 +102,8 @@ class AccountConversation(object):
                 m.recipient_class,
                 m.recipient,
                 m.message_type,
-                m.payload)
+                m.payload,
+                m.time)
 
         yield history.read_incoming_messages(
             self.gamespace_id, CLASS_USER, self.account_id, receiver)
@@ -151,12 +153,14 @@ class AccountConversation(object):
             recipient_class = message[AccountConversation.RECIPIENT_CLASS]
             recipient_key = message[AccountConversation.RECIPIENT_KEY]
             payload = message[AccountConversation.PAYLOAD]
+            time = message[AccountConversation.TIME]
         except KeyError:
             return
 
         if self.on_message:
             return self.on_message(gamespace_id, message_uuid, sender, recipient_class,
-                                   recipient_key, message_type, payload)
+                                   recipient_key, message_type, payload,
+                                   datetime.datetime.fromtimestamp(time))
 
     def __action_message_deleted(self, gamespace_id, message_uuid, sender, message):
         if self.on_deleted:
