@@ -281,6 +281,14 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to leave a group: " + e.args[1])
 
+        if participation.cluster_id:
+            try:
+                yield self.cluster.leave_cluster(
+                    gamespace, account, group.group_id)
+            except ClusterError:
+                # well
+                pass
+
         if notify:
             yield self.app.message_queue.add_message(
                 gamespace, account, group.group_class, participation.calculate_recipient(),
