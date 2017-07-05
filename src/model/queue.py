@@ -16,6 +16,7 @@ import logging
 import ujson
 import uuid
 import datetime
+import pytz
 
 from pika import BasicProperties
 
@@ -191,7 +192,7 @@ class MessagesQueueModel(Model):
             message_uuid,
             str(recipient_class),
             str(recipient_key),
-            datetime.datetime.fromtimestamp(time),
+            datetime.datetime.fromtimestamp(time, tz=pytz.utc),
             message_type,
             payload,
             flags,

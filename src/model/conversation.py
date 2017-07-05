@@ -3,6 +3,7 @@ import ujson
 import logging
 import datetime
 import uuid
+import pytz
 
 from tornado.gen import coroutine, Return, Future
 from group import GroupsModel
@@ -160,7 +161,7 @@ class AccountConversation(object):
         if self.on_message:
             return self.on_message(gamespace_id, message_uuid, sender, recipient_class,
                                    recipient_key, message_type, payload,
-                                   datetime.datetime.fromtimestamp(time))
+                                   datetime.datetime.fromtimestamp(time, tz=pytz.utc))
 
     def __action_message_deleted(self, gamespace_id, message_uuid, sender, message):
         if self.on_deleted:
