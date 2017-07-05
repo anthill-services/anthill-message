@@ -1,7 +1,7 @@
 
 from tornado.gen import coroutine, Return
 
-from common.cluster import Cluster
+from common.cluster import Cluster, ClusterError
 from common.database import DatabaseError, DuplicateError
 from common.model import Model
 from common.options import options
@@ -198,7 +198,8 @@ class GroupsModel(Model):
 
         if group.clustered:
             cluster_id = yield self.cluster.get_cluster(
-                gamespace, account, group_id, group.cluster_size, auto_create=True)
+                gamespace, account, group_id,
+                cluster_size=group.cluster_size, auto_create=True)
         else:
             cluster_id = 0
 

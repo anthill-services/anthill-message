@@ -175,7 +175,7 @@ class MessagesHistoryModel(Model):
         self.app = app
 
     def get_setup_tables(self):
-        return ["messages"]
+        return ["messages", "last_read_message"]
 
     def get_setup_db(self):
         return self.db
