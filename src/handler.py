@@ -219,6 +219,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
     def __init__(self, application, request, **kwargs):
         super(ConversationEndpointHandler, self).__init__(application, request, **kwargs)
         self.conversation = None
+        self.authoritative = False
 
     def required_scopes(self):
         return ["message_listen"]
@@ -239,13 +240,15 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         self.conversation.set_on_deleted(self._deleted)
         self.conversation.set_on_updated(self._updated)
 
+        self.authoritative = self.token.has_scope("message_authoritative")
+
         yield self.conversation.init()
 
         logging.debug("Exchange has been opened!")
 
     @coroutine
     def _message(self, gamespace_id, message_id, sender, recipient_class,
-                 recipient_key, message_type, payload, time):
+                 recipient_key, message_type, payload, time, flags):
 
         try:
             yield self.rpc(
@@ -258,7 +261,8 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
                 recipient_key=recipient_key,
                 message_type=message_type,
                 payload=payload,
-                time=str(time))
+                time=str(time),
+                flags=flags)
         except JsonRPCError as e:
             raise Return(False)
 
@@ -311,7 +315,8 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
             recipient_key,
             message_type,
             message,
-            MessageFlags(flags))
+            MessageFlags(flags),
+            authoritative=self.authoritative)
 
     @coroutine
     @validate(message_id="str")
@@ -394,15 +399,18 @@ class SendMessagesHandler(AuthenticatedHandler):
 
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
+        authoritative = self.token.has_scope("message_authoritative")
+
         try:
             messages = ujson.loads(self.get_argument("messages"))
         except (KeyError, ValueError):
             raise HTTPError(400, "Corrupted messages")
 
         try:
-            yield message_queue.add_messages(gamespace_id, self.token.account, messages)
+            yield message_queue.add_messages(gamespace_id, self.token.account, messages,
+                                             authoritative=authoritative)
         except MessageSendError as e:
-            raise HTTPError(400, "Failed to deliver a message: " + e.message)
+            raise HTTPError(e.code, "Failed to deliver a message: " + e.message)
 
 
 class SendMessageHandler(AuthenticatedHandler):
@@ -423,13 +431,16 @@ class SendMessageHandler(AuthenticatedHandler):
         except (KeyError, ValueError):
             raise HTTPError(400, "Corrupted payload")
 
+        authoritative = self.token.has_scope("message_authoritative")
+
         try:
             yield message_queue.add_message(
                 gamespace_id, self.token.account, recipient_class, recipient_key, message_type, payload,
-                MessageFlags(message_flags))
+                MessageFlags(message_flags),
+                authoritative=authoritative)
 
         except MessageSendError as e:
-            raise HTTPError(400, "Failed to deliver a message: " + e.message)
+            raise HTTPError(e.message, "Failed to deliver a message: " + e.message)
 
 
 class InternalHandler(object):
@@ -481,8 +492,9 @@ class InternalHandler(object):
 
     @coroutine
     @validate(gamespace="int", group_class="str_name", group_key="str", account_id="int", role="str_name",
-              notify="json_dict")
-    def join_group(self, gamespace, group_class, group_key, account_id, role="member", notify=None):
+              notify="json_dict", authoritative="bool")
+    def join_group(self, gamespace, group_class, group_key, account_id, role="member",
+                   notify=None, authoritative=False):
         groups = self.application.groups
 
         try:
@@ -493,7 +505,8 @@ class InternalHandler(object):
             raise InternalError(e.code, e.message)
 
         try:
-            participation = yield groups.join_group(gamespace, group, account_id, role, notify=notify)
+            participation = yield groups.join_group(gamespace, group, account_id, role,
+                                                    notify=notify, authoritative=authoritative)
         except GroupError as e:
             raise InternalError(e.code, e.message)
         except UserAlreadyJoined:
@@ -507,8 +520,9 @@ class InternalHandler(object):
         })
 
     @coroutine
-    @validate(gamespace="int", group_class="str_name", group_key="str", account_id="int", notify="json_dict")
-    def leave_group(self, gamespace, group_class, group_key, account_id, notify=None):
+    @validate(gamespace="int", group_class="str_name", group_key="str", account_id="int",
+              notify="json_dict", authoritative="bool")
+    def leave_group(self, gamespace, group_class, group_key, account_id, notify=None, authoritative=False):
         groups = self.application.groups
 
         try:
@@ -519,7 +533,7 @@ class InternalHandler(object):
             raise InternalError(e.code, e.message)
 
         try:
-            yield groups.leave_group(gamespace, group, account_id, notify=notify)
+            yield groups.leave_group(gamespace, group, account_id, notify=notify, authoritative=authoritative)
         except GroupError as e:
             raise InternalError(e.code, e.message)
 
@@ -528,18 +542,21 @@ class InternalHandler(object):
         })
 
     @coroutine
-    def send_batch(self, gamespace, sender, messages):
+    def send_batch(self, gamespace, sender, messages, authoritative=False):
         message_queue = self.application.message_queue
         logging.info("Delivering batched messages...")
 
-        yield message_queue.add_messages(gamespace, sender, messages)
+        yield message_queue.add_messages(gamespace, sender, messages, authoritative=authoritative)
 
     @coroutine
     @validate(gamespace="int", sender="int", recipient_class="str", recipient_key="str",
-              message_type="str", payload="json_dict", flags="json_list_of_str_name")
-    def send_message(self, gamespace, sender, recipient_class, recipient_key, message_type, payload, flags):
+              message_type="str", payload="json_dict", flags="json_list_of_str_name",
+              authoritative="bool")
+    def send_message(self, gamespace, sender, recipient_class, recipient_key, message_type,
+                     payload, flags, authoritative=False):
         message_queue = self.application.message_queue
 
         yield message_queue.add_message(
             gamespace, sender, recipient_class, recipient_key,
-            message_type, payload, MessageFlags(flags))
+            message_type, payload, MessageFlags(flags),
+            authoritative=authoritative)

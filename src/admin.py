@@ -437,7 +437,7 @@ class GroupParticipantController(a.AdminController):
             raise a.ActionError("No such group")
 
         try:
-            yield groups.leave_group(self.gamespace, group, participation.account)
+            yield groups.leave_group(self.gamespace, group, participation.account, authoritative=True)
         except GroupError as e:
             raise a.ActionError("Failed to leave a group:" + e.message)
 
@@ -596,7 +596,7 @@ class MessagesStreamController(a.StreamAdminController):
 
     @coroutine
     def _on_message(self, gamespace_id, message_id, sender,
-                    recipient_class, recipient_key, message_type, payload, time):
+                    recipient_class, recipient_key, message_type, payload, time, flags):
         try:
             result = yield self.request(
                 self,
@@ -608,7 +608,8 @@ class MessagesStreamController(a.StreamAdminController):
                 recipient_key=recipient_key,
                 message_type=message_type,
                 payload=payload,
-                time=str(time))
+                time=str(time),
+                flags=flags)
         except JsonRPCError:
             raise Return(False)
 
@@ -657,7 +658,8 @@ class MessagesStreamController(a.StreamAdminController):
             recipient_key,
             message_type,
             message,
-            MessageFlags(flags))
+            MessageFlags(flags),
+            authoritative=True)
 
     @coroutine
     @validate(message_id="str", sender="int")

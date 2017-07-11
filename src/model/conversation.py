@@ -58,9 +58,9 @@ class AccountConversation(object):
         self.on_updated = None
 
         self.actions = {
-            AccountConversation.ACTION_NEW_MESSAGE: self.__action_new_message,
-            AccountConversation.ACTION_MESSAGE_UPDATED: self.__action_message_updated,
-            AccountConversation.ACTION_MESSAGE_DELETED: self.__action_message_deleted
+            AccountConversation.ACTION_NEW_MESSAGE: self.__action_new_message__,
+            AccountConversation.ACTION_MESSAGE_UPDATED: self.__action_message_updated__,
+            AccountConversation.ACTION_MESSAGE_DELETED: self.__action_message_deleted__
         }
 
     @coroutine
@@ -104,7 +104,8 @@ class AccountConversation(object):
                 m.recipient,
                 m.message_type,
                 m.payload,
-                m.time)
+                m.time,
+                m.flags.as_list())
 
         yield history.read_incoming_messages(
             self.gamespace_id, CLASS_USER, self.account_id, receiver)
@@ -147,7 +148,7 @@ class AccountConversation(object):
 
         logging.info("Conversation for account {0} released.".format(self.account_id))
 
-    def __action_new_message(self, gamespace_id, message_uuid, sender, message):
+    def __action_new_message__(self, gamespace_id, message_uuid, sender, message):
 
         try:
             message_type = message[AccountConversation.TYPE]
@@ -155,19 +156,21 @@ class AccountConversation(object):
             recipient_key = message[AccountConversation.RECIPIENT_KEY]
             payload = message[AccountConversation.PAYLOAD]
             time = message[AccountConversation.TIME]
+            flags = message[AccountConversation.FLAGS]
         except KeyError:
             return
 
         if self.on_message:
             return self.on_message(gamespace_id, message_uuid, sender, recipient_class,
                                    recipient_key, message_type, payload,
-                                   datetime.datetime.fromtimestamp(time, tz=pytz.utc))
+                                   datetime.datetime.fromtimestamp(time, tz=pytz.utc),
+                                   flags)
 
-    def __action_message_deleted(self, gamespace_id, message_uuid, sender, message):
+    def __action_message_deleted__(self, gamespace_id, message_uuid, sender, message):
         if self.on_deleted:
             return self.on_deleted(gamespace_id, message_uuid, sender)
 
-    def __action_message_updated(self, gamespace_id, message_uuid, sender, message):
+    def __action_message_updated__(self, gamespace_id, message_uuid, sender, message):
 
         try:
             payload = message[AccountConversation.PAYLOAD]

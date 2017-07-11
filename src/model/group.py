@@ -191,8 +191,8 @@ class GroupsModel(Model):
             raise GroupError(500, "Failed to update a group: " + e.args[1])
 
     @coroutine
-    @validate(gamespace="int", group=GroupAdapter, account="int", role="str", notify="json_dict")
-    def join_group(self, gamespace, group, account, role, notify=None):
+    @validate(gamespace="int", group=GroupAdapter, account="int", role="str", notify="json_dict", authoritative="bool")
+    def join_group(self, gamespace, group, account, role, notify=None, authoritative=False):
 
         group_id = group.group_id
 
@@ -231,7 +231,8 @@ class GroupsModel(Model):
         if notify:
             yield self.app.message_queue.add_message(
                 gamespace, account, group.group_class, participation.calculate_recipient(),
-                GroupsModel.MESSAGE_PLAYER_JOINED, notify, MessageFlags())
+                GroupsModel.MESSAGE_PLAYER_JOINED, notify, MessageFlags(),
+                authoritative=authoritative)
 
         raise Return(participation)
 
@@ -267,8 +268,8 @@ class GroupsModel(Model):
             raise GroupError(500, "Failed to update a group participation: " + e.args[1])
 
     @coroutine
-    @validate(gamespace="int", group=GroupAdapter, account="int", notify="json_dict")
-    def leave_group(self, gamespace, group, account, notify=None):
+    @validate(gamespace="int", group=GroupAdapter, account="int", notify="json_dict", authoritative="bool")
+    def leave_group(self, gamespace, group, account, notify=None, authoritative=False):
 
         participation = yield self.find_group_participant(gamespace, group.group_id, account)
 
@@ -292,7 +293,8 @@ class GroupsModel(Model):
         if notify:
             yield self.app.message_queue.add_message(
                 gamespace, account, group.group_class, participation.calculate_recipient(),
-                GroupsModel.MESSAGE_PLAYER_LEFT, notify, MessageFlags())
+                GroupsModel.MESSAGE_PLAYER_LEFT, notify, MessageFlags(),
+                authoritative=authoritative)
 
     @coroutine
     @validate(gamespace="int", group_id="int", account="int")

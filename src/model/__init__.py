@@ -16,7 +16,8 @@ class MessageError(Exception):
 
 
 class MessageSendError(Exception):
-    def __init__(self, message):
+    def __init__(self, code, message):
+        self.code = code
         self.message = message
 
 
@@ -27,3 +28,5 @@ class MessageFlags(Flags):
     EDITABLE = 'editable'
     # This message can be deleted by anyone who has message's UUID
     DELETABLE = 'deletable'
+    # This message has been sent from authoritative server and should be trusted
+    SERVER = 'server'

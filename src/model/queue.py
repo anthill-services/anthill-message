@@ -204,7 +204,7 @@ class MessagesQueueModel(Model):
     def __deliver_message__(self, message_uuid, recipient_class, recipient_key, message):
 
         if not isinstance(message, dict):
-            raise MessageSendError("Payload message to be a dict")
+            raise MessageSendError(400, "Payload message to be a dict")
 
         exchange_id = AccountConversation.__id__(recipient_class, recipient_key)
 
@@ -330,8 +330,8 @@ class MessagesQueueModel(Model):
             yield channel.close()
 
     @coroutine
-    @validate(gamespace="int", sender="int", messages="json_list")
-    def add_messages(self, gamespace, sender, messages):
+    @validate(gamespace="int", sender="int", messages="json_list", authoritative="bool")
+    def add_messages(self, gamespace, sender, messages, authoritative=False):
 
         out_queue = Queue()
 
@@ -355,6 +355,13 @@ class MessagesQueueModel(Model):
                 continue
 
             flags = MessageFlags(flags_)
+
+            if MessageFlags.SERVER in flags:
+                raise MessageSendError(409, "Cannot set 'server' flag directly, "
+                                            "use scope 'message_authoritative' instead.")
+
+            if authoritative:
+                flags.set(MessageFlags.SERVER)
 
             message_uuid = str(uuid.uuid4())
 
@@ -382,8 +389,16 @@ class MessagesQueueModel(Model):
 
     @validate(gamespace="int", sender="int", recipient_class="str",
               recipient_key="str", message_type="str", payload="json_dict",
-              flags=MessageFlags)
-    def add_message(self, gamespace, sender, recipient_class, recipient_key, message_type, payload, flags):
+              flags=MessageFlags, authoritative="bool")
+    def add_message(self, gamespace, sender, recipient_class, recipient_key, message_type, payload, flags,
+                    authoritative=False):
+
+        if MessageFlags.SERVER in flags:
+            raise MessageSendError(409, "Cannot set 'server' flag directly, "
+                                        "use scope 'message_authoritative' instead.")
+
+        if authoritative:
+            flags.set(MessageFlags.SERVER)
 
         message_uuid = str(uuid.uuid4())
 
