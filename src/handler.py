@@ -251,7 +251,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
                  recipient_key, message_type, payload, time, flags):
 
         try:
-            yield self.rpc(
+            yield self.send_rpc(
                 self,
                 "message",
                 gamespace_id=gamespace_id,
@@ -272,7 +272,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
     def _deleted(self, gamespace_id, message_id, sender):
 
         try:
-            yield self.rpc(
+            yield self.send_rpc(
                 self,
                 "message_deleted",
                 gamespace_id=gamespace_id,
@@ -287,7 +287,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
     def _updated(self, gamespace_id, message_id, sender, payload):
 
         try:
-            yield self.rpc(
+            yield self.send_rpc(
                 self,
                 "message_updated",
                 gamespace_id=gamespace_id,

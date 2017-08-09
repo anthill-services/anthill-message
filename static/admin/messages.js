@@ -99,9 +99,10 @@
                             "title": "Other Flags",
                             "items": {
                                 "type": "string",
-                                "enum": ["remove_delivered", "editable", "deletable"],
+                                "enum": ["remove_delivered", "editable", "deletable", "do_not_store"],
                                 "options": {
-                                    "enum_titles": ["Delete once delivered", "Can be updated", "Can be deleted"]
+                                    "enum_titles": ["Delete once delivered", "Can be updated", "Can be deleted",
+                                        "Do Not Store"]
                                 }
                             }
                         }

@@ -74,9 +74,9 @@ class MessagesQueueModel(Model):
             yield self.channel.basic_qos(prefetch_count=self.message_prefetch_count)
 
             self.queue = yield self.channel.queue(queue=self.message_incoming_queue_name, durable=True)
-            yield self.queue.consume(self.__on_message__)
-
             self.callback_queue = yield self.channel.queue(exclusive=True)
+
+            yield self.queue.consume(self.__on_message__)
             yield self.callback_queue.consume(self.__on_callback__, no_ack=True)
 
         except Exception:
@@ -182,6 +182,9 @@ class MessagesQueueModel(Model):
         history = self.history
 
         flags = MessageFlags(message.get(AccountConversation.FLAGS, []))
+
+        if MessageFlags.DO_NOT_STORE in flags:
+            raise Return(delivered)
 
         if delivered and (MessageFlags.REMOVE_DELIVERED in flags):
             raise Return(delivered)

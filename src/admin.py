@@ -598,7 +598,7 @@ class MessagesStreamController(a.StreamAdminController):
     def _on_message(self, gamespace_id, message_id, sender,
                     recipient_class, recipient_key, message_type, payload, time, flags):
         try:
-            result = yield self.request(
+            result = yield self.send_request(
                 self,
                 "message",
                 gamespace_id=gamespace_id,
@@ -618,7 +618,7 @@ class MessagesStreamController(a.StreamAdminController):
     @coroutine
     def _on_message_deleted(self, gamespace_id, message_id, sender):
         try:
-            result = yield self.request(
+            result = yield self.send_request(
                 self,
                 "message_deleted",
                 gamespace_id=gamespace_id,
@@ -632,7 +632,7 @@ class MessagesStreamController(a.StreamAdminController):
     @coroutine
     def _on_message_updated(self, gamespace_id, message_id, sender, payload):
         try:
-            result = yield self.request(
+            result = yield self.send_request(
                 self,
                 "message_updated",
                 gamespace_id=gamespace_id,

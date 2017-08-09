@@ -24,6 +24,8 @@ class MessageSendError(Exception):
 class MessageFlags(Flags):
     # This message will be removed once delivered
     REMOVE_DELIVERED = 'remove_delivered'
+    # This message will be delivered only to those who're online atm, otherwise not even stored
+    DO_NOT_STORE = 'do_not_store'
     # This message can be edited by anyone who has message's UUID
     EDITABLE = 'editable'
     # This message can be deleted by anyone who has message's UUID
