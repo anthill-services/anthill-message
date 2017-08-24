@@ -4,12 +4,12 @@ from common.options import define
 # Main
 
 define("host",
-       default="http://message-dev.anthill",
+       default="http://localhost:9511",
        help="Public hostname of this service",
        type=str)
 
 define("listen",
-       default="port:11000",
+       default="unix:/usr/local/var/run/anthill/dev_message.sock",
        help="Socket to listen. Could be a port number (port:N), or a unix domain socket (unix:PATH)",
        type=str)
 
@@ -26,7 +26,7 @@ define("db_host",
        help="MySQL database location")
 
 define("db_username",
-       default="anthill",
+       default="root",
        type=str,
        help="MySQL account username")
 
@@ -36,14 +36,14 @@ define("db_password",
        help="MySQL account password")
 
 define("db_name",
-       default="message",
+       default="dev_message",
        type=str,
        help="MySQL database name")
 
 # Messaging
 
 define("message_broker",
-       default="amqp://anthill:anthill@127.0.0.1:5672/dev",
+       default="amqp://guest:guest@127.0.0.1:5672/",
        help="RabbitMQ broker location for messaging (amqp).",
        group="message",
        type=str)
