@@ -10,6 +10,8 @@ from group import GroupsModel
 from . import CLASS_USER, MessageFlags
 
 from pika import BasicProperties
+from hashlib import sha1
+from base64 import b64encode
 
 
 class ProcessError(Exception):
@@ -50,6 +52,7 @@ class AccountConversation(object):
 
         self.receive_channel = None
         self.receive_exchange = None
+        self.custom_exchange = None
         self.receive_queue = None
         self.receive_consumer = None
 
@@ -64,9 +67,7 @@ class AccountConversation(object):
         }
 
     @coroutine
-    def init(self):
-        logging.debug("Initializing conversation")
-
+    def init(self, message_types=None):
         self.receive_channel = yield self.connection.channel()
 
         exchange_name = AccountConversation.__id__(CLASS_USER, self.account_id)
@@ -80,7 +81,28 @@ class AccountConversation(object):
             "x-message-ttl": 1000
         })
 
-        yield self.receive_queue.bind(exchange=self.receive_exchange)
+        if message_types:
+            message_types.sort()
+            tmp = "".join(message_types)
+            custom_exchange_name = 'c.' + str(self.account_id) + "." + str(len(tmp)) + "-" + \
+                                   b64encode(sha1(tmp).digest())
+
+            self.custom_exchange = yield self.receive_channel.exchange(
+                exchange=custom_exchange_name,
+                exchange_type='headers',
+                auto_delete=True)
+
+            # bind for each message type
+            yield [
+                self.custom_exchange.bind(exchange=self.receive_exchange, arguments={
+                    AccountConversation.TYPE: message_type
+                })
+                for message_type in message_types
+            ]
+
+            yield self.receive_queue.bind(exchange=self.custom_exchange)
+        else:
+            yield self.receive_queue.bind(exchange=self.receive_exchange)
 
         groups = self.online.groups
         history = self.online.history
@@ -143,6 +165,7 @@ class AccountConversation(object):
 
         self.receive_channel = None
         self.receive_exchange = None
+        self.custom_exchange = None
         self.receive_queue = None
         self.receive_consumer = None
 

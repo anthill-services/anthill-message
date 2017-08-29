@@ -6,7 +6,7 @@ from common.jsonrpc import JsonRPCError
 from common import to_int
 
 from common.access import AccessToken
-from tornado.gen import coroutine, Return
+from tornado.gen import coroutine, Return, sleep
 from tornado.ioloop import IOLoop
 
 from model.group import GroupError, GroupNotFound, GroupExistsError, UserAlreadyJoined, GroupParticipantNotFound
@@ -699,11 +699,11 @@ class MessagesStreamController(a.StreamAdminController):
         raise Return(result)
 
     @coroutine
-    def opened(self, **kwargs):
-        pass # yield self.rpc(self, "servers", result)
+    def on_opened(self, **kwargs):
+        pass
 
     @coroutine
-    def closed(self):
+    def on_closed(self):
         if self.conversation:
             yield self.conversation.release()
             self.conversation = None

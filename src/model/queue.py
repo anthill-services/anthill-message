@@ -154,10 +154,11 @@ class MessagesQueueModel(Model):
     def __action_simple_deliver__(self, gamespace_id, sender, recipient_class, recipient_key, message):
         try:
             message_uuid = message[AccountConversation.MESSAGE_UUID]
+            message_type = message[AccountConversation.TYPE]
         except KeyError as e:
             raise MessagesQueueError("Missing field: " + e.args[0])
 
-        return self.__deliver_message__(message_uuid, recipient_class, recipient_key, message)
+        return self.__deliver_message__(message_uuid, message_type, recipient_class, recipient_key, message)
 
     @coroutine
     def __action_new_message__(self, gamespace_id, sender, recipient_class, recipient_key, message):
@@ -173,7 +174,7 @@ class MessagesQueueModel(Model):
         # noinspection PyBroadException
         try:
             delivered = yield self.__deliver_message__(
-                message_uuid, recipient_class, recipient_key, message)
+                message_uuid, message_type, recipient_class, recipient_key, message)
 
         except Exception:
             logging.exception("Failed to deliver message")
@@ -204,7 +205,7 @@ class MessagesQueueModel(Model):
         raise Return(delivered)
 
     @coroutine
-    def __deliver_message__(self, message_uuid, recipient_class, recipient_key, message):
+    def __deliver_message__(self, message_uuid, message_type, recipient_class, recipient_key, message):
 
         if not isinstance(message, dict):
             raise MessageSendError(400, "Payload message to be a dict")
@@ -247,7 +248,10 @@ class MessagesQueueModel(Model):
             properties = BasicProperties(
                 content_type='text/plain',
                 reply_to=self.callback_queue.routing_key,
-                correlation_id=message_uuid)
+                correlation_id=message_uuid,
+                headers={
+                    AccountConversation.TYPE: message_type
+                })
 
             yield channel.basic_publish(
                 exchange_id,

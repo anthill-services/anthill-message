@@ -9,7 +9,7 @@ from common.access import scoped, AccessToken
 from common.handler import AuthenticatedHandler, JsonRPCWSHandler
 from common.jsonrpc import JsonRPCError
 from common.internal import InternalError
-from common.validate import validate
+from common.validate import validate, validate_value, ValidationError
 
 from model.group import GroupParticipantNotFound, GroupNotFound, GroupsModel, GroupError, UserAlreadyJoined, \
     GroupAdapter
@@ -225,14 +225,22 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         return ["message_listen"]
 
     @coroutine
-    def opened(self, *args, **kwargs):
+    def on_opened(self, *args, **kwargs):
         online = self.application.online
 
-        account_id = common.to_int(self.token.account)
-        gamespace = self.token.get(AccessToken.GAMESPACE)
+        try:
+            account_id = validate_value(self.token.account, "int")
+        except (KeyError, ValueError, ValidationError):
+            raise HTTPError(3400, "Bad account")
 
-        if not account_id:
-            raise HTTPError(400, "Bad account")
+        message_types = self.get_argument("message_types", None)
+        if message_types:
+            try:
+                message_types = validate_value(ujson.loads(message_types), "json_list_of_str_name")
+            except (KeyError, ValueError, ValidationError):
+                raise HTTPError(3400, "Bad message types")
+
+        gamespace = self.token.get(AccessToken.GAMESPACE)
 
         self.conversation = yield online.conversation(gamespace, account_id)
 
@@ -242,7 +250,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
 
         self.authoritative = self.token.has_scope("message_authoritative")
 
-        yield self.conversation.init()
+        yield self.conversation.init(message_types=message_types)
 
         logging.debug("Exchange has been opened!")
 
@@ -383,7 +391,7 @@ class ConversationEndpointHandler(JsonRPCWSHandler):
         raise Return(result)
 
     @coroutine
-    def closed(self):
+    def on_closed(self):
         if not self.conversation:
             return
 
