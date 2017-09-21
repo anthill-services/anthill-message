@@ -156,10 +156,6 @@ class ReadMessagesHandler(AuthenticatedHandler):
             read_messages = yield history.list_read_messages(gamespace_id, account_id)
 
             self.dumps({
-                "reply_to": {
-                    "recipient_class": CLASS_USER,
-                    "recipient": str(account_id),
-                },
                 "last_read_messages": [
                     read_message.dump()
                     for read_message in read_messages
@@ -179,6 +175,46 @@ class ReadMessagesHandler(AuthenticatedHandler):
                     for message in reversed(messages)
                 ]
             })
+
+
+class ReadMessagesRecipientHandler(AuthenticatedHandler):
+    @scoped()
+    @coroutine
+    def get(self, recipient_account_id):
+        history = self.application.history
+
+        limit = common.to_int(self.get_argument("limit", 100))
+        offset = common.to_int(self.get_argument("offset", 0))
+
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        try:
+            messages, count = yield history.list_messages_recipient_count(
+                gamespace_id, account_id, recipient_account_id, limit=limit, offset=offset)
+        except MessageError as e:
+            raise HTTPError(e.code, "Account is not joined in that group")
+
+        self.dumps({
+            "reply_to": {
+                "recipient_class": CLASS_USER,
+                "recipient": str(recipient_account_id),
+            },
+            "total_count": count,
+            "messages": [
+                {
+                    "uuid": message.message_uuid,
+                    "recipient_class": message.recipient_class,
+                    "sender": message.sender,
+                    "recipient": message.recipient,
+                    "gamespace": int(gamespace_id),
+                    "time": str(message.time),
+                    "type": message.message_type,
+                    "payload": message.payload
+                }
+                for message in reversed(messages)
+            ]
+        })
 
 
 class JoinGroupHandler(AuthenticatedHandler):

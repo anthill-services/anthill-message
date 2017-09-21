@@ -75,6 +75,7 @@ class MessagesServer(common.server.Server):
             (r"/send/(\w+)/(\w+)", handler.SendMessageHandler),
             (r"/send", handler.SendMessagesHandler),
             (r"/messages", handler.ReadMessagesHandler),
+            (r"/messages/with/(.*)", handler.ReadMessagesRecipientHandler),
             (r"/message/(.*)", handler.MessageHandler),
             (r"/listen", handler.ConversationEndpointHandler)
         ]

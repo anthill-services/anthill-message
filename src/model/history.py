@@ -265,6 +265,48 @@ class MessagesHistoryModel(Model):
         raise Return(result)
 
     @coroutine
+    @validate(gamespace="int", account_id="int", recipient_account_id="int", limit="int", offset="int")
+    def list_messages_recipient_count(self, gamespace, account_id, recipient_account_id, limit=100, offset=0):
+
+        """
+        Returns messages that were sent between account_id and recipient_account_id
+        """
+
+        if limit < 1 or limit > 10000 or offset < 0 or offset > 10000:
+            raise MessageError(400, "Bad limit/offset")
+
+        with (yield self.db.acquire()) as db:
+            try:
+                messages = yield (db or self.db).query(
+                    """
+                        SELECT SQL_CALC_FOUND_ROWS * 
+                        FROM `messages` 
+                        WHERE `gamespace_id`=%s AND `message_recipient_class`=%s AND 
+                              `message_recipient`=%s AND `message_sender`=%s
+                        UNION DISTINCT
+                        (
+                            SELECT * 
+                            FROM `messages` 
+                            WHERE `gamespace_id`=%s AND `message_recipient_class`=%s AND 
+                                  `message_recipient`=%s AND `message_sender`=%s
+                        )
+                        ORDER BY `message_id` DESC
+                        LIMIT %s, %s;
+                    """, gamespace, CLASS_USER, str(account_id), str(recipient_account_id),
+                    gamespace, CLASS_USER, str(recipient_account_id), str(account_id),
+                    offset, limit)
+            except DatabaseError as e:
+                raise MessageError(500, "Failed to list incoming messages for account: " + e.args[1])
+
+            count_result = yield db.get(
+                """
+                    SELECT FOUND_ROWS() AS count;
+                """)
+            count_result = count_result["count"]
+
+            raise Return((map(MessageAdapter, messages), count_result))
+
+    @coroutine
     @validate(gamespace="int", account_id="int", limit="int", offset="int")
     def list_messages_account(self, gamespace, account_id, limit=100, offset=0, db=None):
         """
