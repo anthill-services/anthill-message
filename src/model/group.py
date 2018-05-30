@@ -60,6 +60,27 @@ class GroupsModel(Model):
     def get_setup_db(self):
         return self.db
 
+    def has_delete_account_event(self):
+        return True
+
+    @coroutine
+    def accounts_deleted(self, gamespace, accounts, gamespace_only):
+        try:
+            if gamespace_only:
+                yield self.db.execute(
+                    """
+                        DELETE FROM `group_participants`
+                        WHERE `gamespace_id`=%s AND `participation_account` IN %s;
+                    """, gamespace, accounts)
+            else:
+                yield self.db.execute(
+                    """
+                        DELETE FROM `group_participants`
+                        WHERE `participation_account` IN %s;
+                    """, accounts)
+        except DatabaseError as e:
+            raise MessageError(500, "Failed to delete messages: " + e.args[1])
+
     @coroutine
     @validate(gamespace="int", group_class="str", key="str", clustered="bool", cluster_size="int")
     def new_group(self, gamespace, group_class, key, clustered=False, cluster_size=1000):

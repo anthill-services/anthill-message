@@ -66,7 +66,7 @@ class MessagesQueueModel(Model):
 
     # noinspection PyBroadException
     @coroutine
-    def started(self):
+    def started(self, application):
 
         try:
             self.channel = yield self.connection.channel()

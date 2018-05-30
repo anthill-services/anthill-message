@@ -180,6 +180,48 @@ class MessagesHistoryModel(Model):
     def get_setup_db(self):
         return self.db
 
+    def has_delete_account_event(self):
+        return True
+
+    @coroutine
+    def accounts_deleted(self, gamespace, accounts, gamespace_only):
+        try:
+            with (yield self.db.acquire()) as db:
+                if gamespace_only:
+                    yield db.execute(
+                        """
+                            DELETE FROM `last_read_message`
+                            WHERE `gamespace_id`=%s AND `account_id` IN %s;
+                        """, gamespace, accounts)
+                    yield db.execute(
+                        """
+                            DELETE FROM `messages`
+                            WHERE `gamespace_id`=%s AND `message_sender` IN %s;
+                        """, gamespace, accounts)
+                    yield db.execute(
+                        """
+                            DELETE FROM `messages`
+                            WHERE `gamespace_id`=%s AND `message_recipient_class`=%s AND `message_recipient` IN %s;
+                        """, gamespace, CLASS_USER, accounts)
+                else:
+                    yield db.execute(
+                        """
+                            DELETE FROM `last_read_message`
+                            WHERE `account_id` IN %s;
+                        """, accounts)
+                    yield db.execute(
+                        """
+                            DELETE FROM `messages`
+                            WHERE `message_sender` IN %s;
+                        """, accounts)
+                    yield db.execute(
+                        """
+                            DELETE FROM `messages`
+                            WHERE `message_recipient_class`=%s AND `message_recipient` IN %s;
+                        """, CLASS_USER, accounts)
+        except DatabaseError as e:
+            raise MessageError(500, "Failed to delete messages: " + e.args[1])
+
     def messages_query(self, gamespace):
         return MessagesQuery(gamespace, self.db)
 
