@@ -1,6 +1,6 @@
 
-from common.validate import validate
-from common import Flags
+from anthill.common.validate import validate
+from anthill.common import Flags
 
 
 CLASS_USER = "user"

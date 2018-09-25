@@ -1,16 +1,16 @@
-from tornado.gen import coroutine, Return, sleep, Future, with_timeout, TimeoutError
+
+from tornado.gen import Future, with_timeout, TimeoutError
 from tornado.queues import Queue, QueueEmpty
 from tornado.ioloop import IOLoop
 
-from conversation import AccountConversation, MessageFlags
-
-from common.model import Model
-from common.rabbitconn import RabbitMQConnection
-from common.options import options
-from common.validate import validate
-from common.access import utc_time
+from anthill.common.model import Model
+from anthill.common.rabbitconn import RabbitMQConnection
+from anthill.common.options import options
+from anthill.common.validate import validate
+from anthill.common.access import utc_time
 
 from . import MessageSendError
+from . conversation import AccountConversation, MessageFlags
 
 import logging
 import ujson
@@ -65,36 +65,34 @@ class MessagesQueueModel(Model):
         }
 
     # noinspection PyBroadException
-    @coroutine
-    def started(self, application):
+    async def started(self, application):
 
         try:
-            self.channel = yield self.connection.channel()
+            self.channel = await self.connection.channel()
 
-            yield self.channel.basic_qos(prefetch_count=self.message_prefetch_count)
+            await self.channel.basic_qos(prefetch_count=self.message_prefetch_count)
 
-            self.queue = yield self.channel.queue(queue=self.message_incoming_queue_name, durable=True)
-            self.callback_queue = yield self.channel.queue(exclusive=True)
+            self.queue = await self.channel.queue(queue=self.message_incoming_queue_name, durable=True)
+            self.callback_queue = await self.channel.queue(exclusive=True)
 
-            yield self.queue.consume(self.__on_message__)
-            yield self.callback_queue.consume(self.__on_callback__, no_ack=True)
+            await self.queue.consume(self.__on_message__)
+            await self.callback_queue.consume(self.__on_callback__, no_ack=True)
 
         except Exception:
             logging.exception("Failed to start message consuming queue")
         else:
             logging.info("Started message consuming queue")
 
-    @coroutine
-    def stopped(self):
+    async def stopped(self):
         logging.info("Releasing message consuming queue")
 
         if self.queue:
-            yield self.queue.delete()
+            await self.queue.delete()
 
         if self.channel:
             # noinspection PyBroadException
             try:
-                yield self.channel.close()
+                await self.channel.close()
             except:
                 pass
 
@@ -103,17 +101,15 @@ class MessagesQueueModel(Model):
         self.exchange = None
         self.queue = None
 
-    @coroutine
     def __on_message__(self, channel, method, properties, body):
         try:
-            yield self.__process__(channel, method, properties, body)
+            self.__process__(channel, method, properties, body)
         except MessagesQueueError as e:
             logging.error("Failed to process incoming message: " + e.message)
 
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
-    @coroutine
-    def __on_callback__(self, channel, method, properties, body):
+    async def __on_callback__(self, channel, method, properties, body):
 
         message_uuid = properties.correlation_id
         delivered = body == 'true'
@@ -125,7 +121,6 @@ class MessagesQueueModel(Model):
         else:
             f.set_result(delivered)
 
-    @coroutine
     def __process__(self, channel, method, properties, body):
         try:
             message = ujson.loads(body)
@@ -141,15 +136,12 @@ class MessagesQueueModel(Model):
         except KeyError as e:
             raise MessagesQueueError("Missing field: " + e.args[0])
 
-        # noinspection PyBroadException
-        try:
-            action_method = self.actions.get(action, self.__action_simple_deliver__)
+        action_method = self.actions.get(action, self.__action_simple_deliver__)
 
-            if action_method:
-                yield action_method(gamespace_id, sender, recipient_class, recipient_key, message)
-
-        except Exception:
-            logging.exception("Failed to deliver message")
+        if action_method:
+            IOLoop.current().spawn_callback(
+                action_method, gamespace_id, sender,
+                recipient_class, recipient_key, message)
 
     def __action_simple_deliver__(self, gamespace_id, sender, recipient_class, recipient_key, message):
         try:
@@ -160,8 +152,7 @@ class MessagesQueueModel(Model):
 
         return self.__deliver_message__(message_uuid, message_type, recipient_class, recipient_key, message)
 
-    @coroutine
-    def __action_new_message__(self, gamespace_id, sender, recipient_class, recipient_key, message):
+    async def __action_new_message__(self, gamespace_id, sender, recipient_class, recipient_key, message):
 
         try:
             message_uuid = message[AccountConversation.MESSAGE_UUID]
@@ -173,7 +164,7 @@ class MessagesQueueModel(Model):
 
         # noinspection PyBroadException
         try:
-            delivered = yield self.__deliver_message__(
+            delivered = await self.__deliver_message__(
                 message_uuid, message_type, recipient_class, recipient_key, message)
 
         except Exception:
@@ -185,12 +176,12 @@ class MessagesQueueModel(Model):
         flags = MessageFlags(message.get(AccountConversation.FLAGS, []))
 
         if MessageFlags.DO_NOT_STORE in flags:
-            raise Return(delivered)
+            return delivered
 
         if delivered and (MessageFlags.REMOVE_DELIVERED in flags):
-            raise Return(delivered)
+            return delivered
 
-        yield history.add_message(
+        await history.add_message(
             gamespace_id,
             sender,
             message_uuid,
@@ -202,17 +193,16 @@ class MessagesQueueModel(Model):
             flags,
             delivered=delivered)
 
-        raise Return(delivered)
+        return delivered
 
-    @coroutine
-    def __deliver_message__(self, message_uuid, message_type, recipient_class, recipient_key, message):
+    async def __deliver_message__(self, message_uuid, message_type, recipient_class, recipient_key, message):
 
         if not isinstance(message, dict):
             raise MessageSendError(400, "Payload message to be a dict")
 
         exchange_id = AccountConversation.__id__(recipient_class, recipient_key)
 
-        channel = yield self.connection.channel()
+        channel = await self.connection.channel()
 
         try:
             f = Future()
@@ -238,8 +228,8 @@ class MessagesQueueModel(Model):
             # add the future to the handles in case callback_queue will bring something
             self.handle_futures[message_uuid] = f
 
-            yield channel.confirm_delivery(delivered_)
-            yield channel.add_on_close_callback(closed)
+            await channel.confirm_delivery(delivered_)
+            await channel.add_on_close_callback(closed)
 
             from pika import BasicProperties
 
@@ -253,7 +243,7 @@ class MessagesQueueModel(Model):
                     AccountConversation.TYPE: message_type
                 })
 
-            yield channel.basic_publish(
+            await channel.basic_publish(
                 exchange_id,
                 '',
                 dumped,
@@ -261,7 +251,7 @@ class MessagesQueueModel(Model):
                 mandatory=True)
 
             try:
-                delivered = yield with_timeout(
+                delivered = await with_timeout(
                     timeout=datetime.timedelta(seconds=MessagesQueueModel.DELIVERY_TIMEOUT),
                     future=f)
             except TimeoutError:
@@ -269,17 +259,16 @@ class MessagesQueueModel(Model):
                 delivered = False
         finally:
             if channel.is_open:
-                yield channel.close()
+                await channel.close()
 
         logging.debug("Message '{0}' {1} been delivered.".format(message_uuid, "has" if delivered else "has not"))
 
-        raise Return(delivered)
+        return delivered
 
     # noinspection PyBroadException
-    @coroutine
-    def __outgoing_message_worker__(self, gamespace, sender, queue):
+    async def __outgoing_message_worker__(self, gamespace, sender, queue):
 
-        channel = yield self.connection.channel()
+        channel = await self.connection.channel()
 
         properties = BasicProperties(
             delivery_mode=2,
@@ -305,8 +294,8 @@ class MessagesQueueModel(Model):
             if f.running():
                 f.set_result(False)
 
-        yield channel.confirm_delivery(delivered_)
-        yield channel.add_on_close_callback(closed)
+        await channel.confirm_delivery(delivered_)
+        await channel.add_on_close_callback(closed)
 
         try:
             while True:
@@ -315,10 +304,10 @@ class MessagesQueueModel(Model):
                 try:
                     body = queue.get_nowait()
                 except QueueEmpty:
-                    raise Return(True)
+                    return True
 
                 try:
-                    yield channel.basic_publish(
+                    await channel.basic_publish(
                         '',
                         self.message_incoming_queue_name,
                         body,
@@ -327,18 +316,17 @@ class MessagesQueueModel(Model):
                 except Exception:
                     logging.exception("Failed to public message.")
 
-                success = yield wrapped.future
+                success = await wrapped.future
                 wrapped.future = None
                 queue.task_done()
 
                 if not success:
-                    raise Return(False)
+                    return False
         finally:
-            yield channel.close()
+            await channel.close()
 
-    @coroutine
     @validate(gamespace="int", sender="int", messages="json_list", authoritative="bool")
-    def add_messages(self, gamespace, sender, messages, authoritative=False):
+    async def add_messages(self, gamespace, sender, messages, authoritative=False):
 
         out_queue = Queue()
 
@@ -389,10 +377,10 @@ class MessagesQueueModel(Model):
 
         workers_count = min(self.outgoing_message_workers, out_queue.qsize())
 
-        for i in xrange(0, workers_count):
+        for i in range(0, workers_count):
             IOLoop.current().add_callback(self.__outgoing_message_worker__, gamespace, sender, out_queue)
 
-        yield out_queue.join(timeout=datetime.timedelta(seconds=MessagesQueueModel.PROCESS_TIMEOUT))
+        await out_queue.join(timeout=datetime.timedelta(seconds=MessagesQueueModel.PROCESS_TIMEOUT))
 
     @validate(gamespace="int", sender="int", recipient_class="str",
               recipient_key="str", message_type="str", payload="json_dict",
@@ -455,11 +443,10 @@ class MessagesQueueModel(Model):
 
         return self.__enqueue_message__(message)
 
-    @coroutine
     @validate(message="json_dict")
-    def __enqueue_message__(self, message):
+    async def __enqueue_message__(self, message):
 
-        channel = yield self.connection.channel()
+        channel = await self.connection.channel()
 
         properties = BasicProperties(
             delivery_mode=2,  # make message persistent
@@ -480,21 +467,21 @@ class MessagesQueueModel(Model):
                 if f.running():
                     f.set_result(False)
 
-            yield channel.confirm_delivery(delivered_)
-            yield channel.add_on_close_callback(closed)
+            await channel.confirm_delivery(delivered_)
+            await channel.add_on_close_callback(closed)
 
-            yield channel.basic_publish(
+            await channel.basic_publish(
                 '',
                 self.message_incoming_queue_name,
                 body,
                 mandatory=True,
                 properties=properties)
 
-            result = yield f
+            result = await f
         except Exception as e:
             logging.exception("Failed to public message.")
             result = False
         finally:
-            yield channel.close()
+            await channel.close()
 
-        raise Return(result)
+        return result

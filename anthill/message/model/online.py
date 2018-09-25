@@ -1,15 +1,11 @@
 
-from tornado.gen import coroutine, Return
-from common.options import options
-from common.model import Model
-
-import common.rabbitconn
-import common.aqmp
-
-from conversation import AccountConversation
+from anthill.common import rabbitconn, aqmp
+from anthill.common.options import options
+from anthill.common.model import Model
 
 from . import CLASS_USER
-from group import GroupsModel
+from . conversation import AccountConversation
+from . group import GroupsModel
 
 
 class BindError(Exception):
@@ -28,26 +24,24 @@ class OnlineModel(Model):
 
         self.groups.online = self
 
-        self.connections = common.rabbitconn.RabbitMQConnectionPool(
+        self.connections = rabbitconn.RabbitMQConnectionPool(
             options.message_broker,
             options.message_broker_max_connections,
             connection_name="message.conversations")
 
-    @coroutine
-    def release(self):
+    async def release(self):
         for connection in self.connections:
-            yield connection.close()
+            await connection.close()
 
-    @coroutine
-    def conversation(self, gamespace_id, account_id):
-        connection = yield self.connections.get()
+    async def conversation(self, gamespace_id, account_id):
+        connection = await self.connections.get()
 
         conversation = AccountConversation(self, gamespace_id, account_id, connection)
 
-        raise Return(conversation)
+        return conversation
 
-    @coroutine
-    def get_account_exchange(self, account_id, channel):
+    # noinspection PyMethodMayBeStatic
+    async def get_account_exchange(self, account_id, channel):
         """
         Returns accounts exchange, if account is online
         :param account_id: account ID
@@ -59,25 +53,24 @@ class OnlineModel(Model):
             CLASS_USER, account_id)
 
         try:
-            exchange = yield channel.exchange(
+            exchange = await channel.exchange(
                 exchange=exchange_name,
                 exchange_type='fanout',
                 passive=True)
-        except common.aqmp.AMQPExchangeError as e:
+        except aqmp.AMQPExchangeError as e:
             if e.code == 404:
-                raise Return(None)
+                return None
             raise BindError(e.code, e.message)
         else:
-            raise Return(exchange)
+            return exchange
 
-    @coroutine
-    def bind_account_to_group(self, account_id, participation):
-        connection = yield self.connections.get()
+    async def bind_account_to_group(self, account_id, participation):
+        connection = await self.connections.get()
 
-        channel = yield connection.channel()
+        channel = await connection.channel()
 
         try:
-            account_online = yield self.get_account_exchange(account_id, channel)
+            account_online = await self.get_account_exchange(account_id, channel)
 
             if not account_online:
                 return
@@ -85,11 +78,11 @@ class OnlineModel(Model):
             group_exchange_name = AccountConversation.__id__(
                 participation.group_class, participation.calculate_recipient())
 
-            group_exchange = yield channel.exchange(
+            group_exchange = await channel.exchange(
                 exchange=group_exchange_name,
                 exchange_type='fanout',
                 auto_delete=True)
 
-            yield account_online.bind(exchange=group_exchange)
+            await account_online.bind(exchange=group_exchange)
         finally:
-            yield channel.close()
+            await channel.close()

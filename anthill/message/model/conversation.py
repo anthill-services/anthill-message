@@ -1,17 +1,19 @@
 
-import ujson
-import logging
-import datetime
-import uuid
-import pytz
+from tornado.gen import multi
+from tornado.ioloop import IOLoop
 
-from tornado.gen import coroutine, Return, Future
-from group import GroupsModel
+from . group import GroupsModel
 from . import CLASS_USER, MessageFlags
 
 from pika import BasicProperties
 from hashlib import sha1
 from base64 import b64encode
+
+import ujson
+import logging
+import datetime
+import uuid
+import pytz
 
 
 class ProcessError(Exception):
@@ -66,18 +68,17 @@ class AccountConversation(object):
             AccountConversation.ACTION_MESSAGE_DELETED: self.__action_message_deleted__
         }
 
-    @coroutine
-    def init(self, message_types=None):
-        self.receive_channel = yield self.connection.channel()
+    async def init(self, message_types=None):
+        self.receive_channel = await self.connection.channel()
 
         exchange_name = AccountConversation.__id__(CLASS_USER, self.account_id)
 
-        self.receive_exchange = yield self.receive_channel.exchange(
+        self.receive_exchange = await self.receive_channel.exchange(
             exchange=exchange_name,
             exchange_type='fanout',
             auto_delete=True)
 
-        self.receive_queue = yield self.receive_channel.queue(exclusive=True, arguments={
+        self.receive_queue = await self.receive_channel.queue(exclusive=True, arguments={
             "x-message-ttl": 1000
         })
 
@@ -87,35 +88,35 @@ class AccountConversation(object):
             custom_exchange_name = 'c.' + str(self.account_id) + "." + str(len(tmp)) + "-" + \
                                    b64encode(sha1(tmp).digest())
 
-            self.custom_exchange = yield self.receive_channel.exchange(
+            self.custom_exchange = await self.receive_channel.exchange(
                 exchange=custom_exchange_name,
                 exchange_type='headers',
                 auto_delete=True)
 
             # bind for each message type
-            yield [
+            await multi([
                 self.custom_exchange.bind(exchange=self.receive_exchange, arguments={
                     AccountConversation.TYPE: message_type
                 })
                 for message_type in message_types
-            ]
+            ])
 
-            yield self.receive_queue.bind(exchange=self.custom_exchange)
+            await self.receive_queue.bind(exchange=self.custom_exchange)
         else:
-            yield self.receive_queue.bind(exchange=self.receive_exchange)
+            await self.receive_queue.bind(exchange=self.receive_exchange)
 
         groups = self.online.groups
         history = self.online.history
 
-        participants = yield groups.list_participants_by_account(self.gamespace_id, self.account_id)
+        participants = await groups.list_participants_by_account(self.gamespace_id, self.account_id)
         for participant in participants:
             exchange_name = AccountConversation.__id__(participant.group_class, participant.calculate_recipient())
-            group_exchange = yield self.receive_channel.exchange(
+            group_exchange = await self.receive_channel.exchange(
                 exchange=exchange_name,
                 exchange_type='fanout',
                 auto_delete=True)
 
-            yield self.receive_exchange.bind(exchange=group_exchange)
+            await self.receive_exchange.bind(exchange=group_exchange)
 
         def receiver(m):
             return self.on_message(
@@ -129,10 +130,10 @@ class AccountConversation(object):
                 m.time,
                 m.flags.as_list())
 
-        yield history.read_incoming_messages(
+        await history.read_incoming_messages(
             self.gamespace_id, CLASS_USER, self.account_id, receiver)
 
-        self.receive_consumer = yield self.receive_queue.consume(self.__on_message__)
+        self.receive_consumer = await self.receive_queue.consume(self.__on_message_sync__)
 
         logging.info("Conversation for account {0} started.".format(self.account_id))
 
@@ -146,18 +147,17 @@ class AccountConversation(object):
         self.on_updated = callback
 
     # noinspection PyBroadException
-    @coroutine
-    def release(self):
+    async def release(self):
 
         if self.receive_queue:
             try:
-                yield self.receive_queue.delete()
+                await self.receive_queue.delete()
             except Exception:
                 logging.exception("Failed to delete the queue")
 
         if self.receive_channel:
             try:
-                yield self.receive_channel.close()
+                await self.receive_channel.close()
             except Exception:
                 logging.exception("Failed to close the channel")
 
@@ -203,8 +203,7 @@ class AccountConversation(object):
         if self.on_updated:
             return self.on_updated(gamespace_id, message_uuid, sender, payload)
 
-    @coroutine
-    def __process__(self, channel, method, properties, body):
+    async def __process__(self, channel, method, properties, body):
         try:
             message = ujson.loads(body)
         except (KeyError, ValueError):
@@ -227,14 +226,14 @@ class AccountConversation(object):
             # try to process the message by a listener
             # noinspection PyBroadException
             try:
-                result = yield action_method(gamespace_id, message_uuid, sender, message)
+                result = await action_method(gamespace_id, message_uuid, sender, message)
             except Exception:
                 logging.exception("Failed to handle the message")
                 result = False
 
-            raise Return(result)
+            return result
 
-        raise Return(False)
+        return False
 
     def __del__(self):
         logging.info("Conversation released!")
@@ -243,10 +242,12 @@ class AccountConversation(object):
     def __id__(clazz, key):
         return AccountConversation.EXCHANGE_PREFIX + "." + str(clazz) + "." + str(key)
 
-    @coroutine
-    def __on_message__(self, channel, method, properties, body):
+    def __on_message_sync__(self, channel, method, properties, body):
+        IOLoop.current().spawn_callback(self.__on_message__, channel, method, properties, body)
+
+    async def __on_message__(self, channel, method, properties, body):
         try:
-            delivered = yield self.__process__(channel, method, properties, body)
+            delivered = await self.__process__(channel, method, properties, body)
         except ProcessError as e:
             logging.error("Failed to process incoming message: " + e.message)
             delivered = False

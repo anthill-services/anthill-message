@@ -1,11 +1,9 @@
 
-from tornado.gen import coroutine, Return
-
-from common.cluster import Cluster, ClusterError
-from common.database import DatabaseError, DuplicateError
-from common.model import Model
-from common.options import options
-from common.validate import validate
+from anthill.common.cluster import Cluster, ClusterError
+from anthill.common.database import DatabaseError, DuplicateError
+from anthill.common.model import Model
+from anthill.common.options import options
+from anthill.common.validate import validate
 
 from . import MessageError, MessageFlags
 
@@ -63,17 +61,16 @@ class GroupsModel(Model):
     def has_delete_account_event(self):
         return True
 
-    @coroutine
-    def accounts_deleted(self, gamespace, accounts, gamespace_only):
+    async def accounts_deleted(self, gamespace, accounts, gamespace_only):
         try:
             if gamespace_only:
-                yield self.db.execute(
+                await self.db.execute(
                     """
                         DELETE FROM `group_participants`
                         WHERE `gamespace_id`=%s AND `participation_account` IN %s;
                     """, gamespace, accounts)
             else:
-                yield self.db.execute(
+                await self.db.execute(
                     """
                         DELETE FROM `group_participants`
                         WHERE `participation_account` IN %s;
@@ -81,12 +78,11 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise MessageError(500, "Failed to delete messages: " + e.args[1])
 
-    @coroutine
     @validate(gamespace="int", group_class="str", key="str", clustered="bool", cluster_size="int")
-    def new_group(self, gamespace, group_class, key, clustered=False, cluster_size=1000):
+    async def new_group(self, gamespace, group_class, key, clustered=False, cluster_size=1000):
 
         try:
-            group_id = yield self.db.insert(
+            group_id = await self.db.insert(
                 """
                     INSERT INTO `groups`
                     (`gamespace_id`, `group_class`, `group_key`,
@@ -98,12 +94,11 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to add a group: " + e.args[1])
         else:
-            raise Return(group_id)
+            return group_id
 
-    @coroutine
-    def get_group(self, gamespace, group_id):
+    async def get_group(self, gamespace, group_id):
         try:
-            message = yield self.db.get(
+            message = await self.db.get(
                 """
                     SELECT *
                     FROM `groups`
@@ -115,13 +110,12 @@ class GroupsModel(Model):
         if not message:
             raise GroupNotFound()
 
-        raise Return(GroupAdapter(message))
+        return GroupAdapter(message)
 
-    @coroutine
     @validate(gamespace="int", group_class="str", key="str")
-    def find_group(self, gamespace, group_class, key):
+    async def find_group(self, gamespace, group_class, key):
         try:
-            group = yield self.db.get(
+            group = await self.db.get(
                 """
                     SELECT *
                     FROM `groups`
@@ -133,13 +127,12 @@ class GroupsModel(Model):
         if not group:
             raise GroupNotFound()
 
-        raise Return(GroupAdapter(group))
+        return GroupAdapter(group)
 
-    @coroutine
     @validate(gamespace="int", group_class="str", key="str", account_id="int")
-    def find_group_with_participation(self, gamespace, group_class, key, account_id):
+    async def find_group_with_participation(self, gamespace, group_class, key, account_id):
         try:
-            group = yield self.db.get(
+            group = await self.db.get(
                 """
                     SELECT *
                     FROM `groups`
@@ -160,13 +153,12 @@ class GroupsModel(Model):
         if not group["participation_id"]:
             raise GroupParticipantNotFound()
 
-        raise Return(GroupAndParticipationAdapter(group))
+        return GroupAndParticipationAdapter(group)
 
-    @coroutine
     @validate(gamespace="int", group_class="str")
-    def list_groups(self, gamespace, group_class):
+    async def list_groups(self, gamespace, group_class):
         try:
-            groups = yield self.db.query(
+            groups = await self.db.query(
                 """
                     SELECT *
                     FROM `groups`
@@ -175,22 +167,21 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list groups: " + e.args[1])
 
-        raise Return(map(GroupAdapter, groups))
+        return map(GroupAdapter, groups)
 
-    @coroutine
     @validate(gamespace_id="int", group=GroupAdapter)
-    def delete_group(self, gamespace_id, group):
+    async def delete_group(self, gamespace_id, group):
 
         group_id = group.group_id
 
         try:
-            yield self.history.delete_messages_like(
+            await self.history.delete_messages_like(
                 gamespace_id, group.group_class, group.key + "-%")
         except MessageError as e:
             raise GroupError(500, "Failed to delete group's messages: " + e.message)
 
         try:
-            yield self.db.execute(
+            await self.db.execute(
                 """
                     DELETE FROM `groups`
                     WHERE `group_id`=%s AND `gamespace_id`=%s;
@@ -198,11 +189,10 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to delete a group: " + e.args[1])
 
-    @coroutine
     @validate(gamespace="int", group_id="int", group_class="str", key="str", cluster_size="int")
-    def update_group(self, gamespace, group_id, group_class, key, cluster_size):
+    async def update_group(self, gamespace, group_id, group_class, key, cluster_size):
         try:
-            yield self.db.execute(
+            await self.db.execute(
                 """
                     UPDATE `groups`
                     SET `group_class`=%s, `group_key`=%s, `group_cluster_size`=%s
@@ -211,21 +201,20 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to update a group: " + e.args[1])
 
-    @coroutine
     @validate(gamespace="int", group=GroupAdapter, account="int", role="str", notify="json_dict", authoritative="bool")
-    def join_group(self, gamespace, group, account, role, notify=None, authoritative=False):
+    async def join_group(self, gamespace, group, account, role, notify=None, authoritative=False):
 
         group_id = group.group_id
 
         if group.clustered:
-            cluster_id = yield self.cluster.get_cluster(
+            cluster_id = await self.cluster.get_cluster(
                 gamespace, account, group_id,
                 cluster_size=group.cluster_size, auto_create=True)
         else:
             cluster_id = 0
 
         try:
-            participation_id = yield self.db.execute(
+            participation_id = await self.db.execute(
                 """
                     INSERT INTO `group_participants`
                     (gamespace_id, `group_id`, `group_class`, `group_key`,
@@ -247,21 +236,20 @@ class GroupsModel(Model):
             "role": role
         })
 
-        yield self.online.bind_account_to_group(account, participation)
+        await self.online.bind_account_to_group(account, participation)
 
         if notify:
-            yield self.app.message_queue.add_message(
+            await self.app.message_queue.add_message(
                 gamespace, account, group.group_class, participation.calculate_recipient(),
                 GroupsModel.MESSAGE_PLAYER_JOINED, notify, MessageFlags(),
                 authoritative=authoritative)
 
-        raise Return(participation)
+        return participation
 
-    @coroutine
     @validate(gamespace="int", participation_id="int")
-    def get_group_participation(self, gamespace, participation_id):
+    async def get_group_participation(self, gamespace, participation_id):
         try:
-            participant = yield self.db.get(
+            participant = await self.db.get(
                 """
                     SELECT *
                     FROM `group_participants`
@@ -273,13 +261,12 @@ class GroupsModel(Model):
         if not participant:
             raise GroupParticipantNotFound()
 
-        raise Return(GroupParticipationAdapter(participant))
+        return GroupParticipationAdapter(participant)
 
-    @coroutine
     @validate(gamespace="int", participation_id="int", role="str")
-    def updated_group_participation(self, gamespace, participation_id, role):
+    async def updated_group_participation(self, gamespace, participation_id, role):
         try:
-            yield self.db.execute(
+            await self.db.execute(
                 """
                     UPDATE `group_participants`
                     SET `participation_role`=%s
@@ -288,14 +275,13 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to update a group participation: " + e.args[1])
 
-    @coroutine
     @validate(gamespace="int", group=GroupAdapter, account="int", notify="json_dict", authoritative="bool")
-    def leave_group(self, gamespace, group, account, notify=None, authoritative=False):
+    async def leave_group(self, gamespace, group, account, notify=None, authoritative=False):
 
-        participation = yield self.find_group_participant(gamespace, group.group_id, account)
+        participation = await self.find_group_participant(gamespace, group.group_id, account)
 
         try:
-            yield self.db.execute(
+            await self.db.execute(
                 """
                     DELETE FROM `group_participants`
                     WHERE `gamespace_id`=%s AND `participation_id`=%s;
@@ -305,23 +291,22 @@ class GroupsModel(Model):
 
         if participation.cluster_id:
             try:
-                yield self.cluster.leave_cluster(
+                await self.cluster.leave_cluster(
                     gamespace, account, group.group_id)
             except ClusterError:
                 # well
                 pass
 
         if notify:
-            yield self.app.message_queue.add_message(
+            await self.app.message_queue.add_message(
                 gamespace, account, group.group_class, participation.calculate_recipient(),
                 GroupsModel.MESSAGE_PLAYER_LEFT, notify, MessageFlags(),
                 authoritative=authoritative)
 
-    @coroutine
     @validate(gamespace="int", group_id="int", account="int")
-    def find_group_participant(self, gamespace, group_id, account):
+    async def find_group_participant(self, gamespace, group_id, account):
         try:
-            participant = yield self.db.get(
+            participant = await self.db.get(
                 """
                     SELECT *
                     FROM `group_participants`
@@ -333,13 +318,12 @@ class GroupsModel(Model):
         if not participant:
             raise GroupParticipantNotFound()
 
-        raise Return(GroupParticipationAdapter(participant))
+        return GroupParticipationAdapter(participant)
 
-    @coroutine
     @validate(gamespace="int", group_id="int")
-    def list_group_participants(self, gamespace, group_id):
+    async def list_group_participants(self, gamespace, group_id):
         try:
-            participants = yield self.db.query(
+            participants = await self.db.query(
                 """
                     SELECT *
                     FROM `group_participants`
@@ -348,13 +332,12 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list group participants: " + e.args[1])
 
-        raise Return(map(GroupParticipationAdapter, participants))
+        return map(GroupParticipationAdapter, participants)
 
-    @coroutine
     @validate(gamespace="int", account_id="int")
-    def list_groups_account_participates(self, gamespace, account_id):
+    async def list_groups_account_participates(self, gamespace, account_id):
         try:
-            groups = yield self.db.query(
+            groups = await self.db.query(
                 """
                     SELECT g.*, p.*
                     FROM `group_participants` AS p
@@ -365,13 +348,12 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list group account participate: " + e.args[1])
 
-        raise Return(map(GroupAndParticipationAdapter, groups))
+        return map(GroupAndParticipationAdapter, groups)
 
-    @coroutine
     @validate(gamespace="int", account_id="int")
-    def list_participants_by_account(self, gamespace, account_id):
+    async def list_participants_by_account(self, gamespace, account_id):
         try:
-            participants = yield self.db.query(
+            participants = await self.db.query(
                 """
                     SELECT *
                     FROM `group_participants`
@@ -380,7 +362,7 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list group account participate: " + e.args[1])
 
-        raise Return(map(GroupParticipationAdapter, participants))
+        return map(GroupParticipationAdapter, participants)
 
 
 class GroupNotFound(Exception):

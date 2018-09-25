@@ -1,21 +1,15 @@
 
-import common.admin as a
-from common.internal import Internal, InternalError
-from common.validate import validate
-from common.jsonrpc import JsonRPCError
-from common import to_int
+import anthill.common.admin as a
+from anthill.common.internal import Internal, InternalError
+from anthill.common.validate import validate
+from anthill.common.jsonrpc import JsonRPCError
+from anthill.common import to_int
 
-from common.access import AccessToken
-from tornado.gen import coroutine, Return, sleep
-from tornado.ioloop import IOLoop
-
-from model.group import GroupError, GroupNotFound, GroupExistsError, UserAlreadyJoined, GroupParticipantNotFound
-from model.history import MessageError, MessageNotFound
-from model import CLASS_USER, MessageFlags
+from .model.group import GroupError, GroupNotFound, GroupExistsError, UserAlreadyJoined, GroupParticipantNotFound
+from .model.history import MessageError, MessageNotFound
+from .model import MessageFlags
 
 import logging
-import ujson
-import common
 import math
 
 
@@ -57,16 +51,15 @@ class UsersController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
-    def search_account(self, account):
+    async def search_account(self, account):
         raise a.Redirect("user", account=account)
 
-    @coroutine
-    def search_credential(self, credential):
+    # noinspection PyMethodMayBeStatic
+    async def search_credential(self, credential):
         internal = Internal()
 
         try:
-            account = yield internal.request(
+            account = await internal.request(
                 "login",
                 "get_account",
                 credential=credential)
@@ -104,20 +97,19 @@ class UserController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(account="int")
-    def get(self, account):
+    async def get(self, account):
 
         groups = self.application.groups
 
         try:
-            user_groups = yield groups.list_groups_account_participates(self.gamespace, account)
+            user_groups = await groups.list_groups_account_participates(self.gamespace, account)
         except GroupError as e:
             raise a.ActionError("Failed to get user conversations: " + e.message)
 
-        raise Return({
+        return {
             "user_groups": user_groups
-        })
+        }
 
 
 class GroupsController(a.AdminController):
@@ -146,14 +138,13 @@ class GroupsController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(group_id="int")
-    def search_id(self, group_id):
+    async def search_id(self, group_id):
 
         groups = self.application.groups
 
         try:
-            group = yield groups.get_group(self.gamespace, group_id)
+            group = await groups.get_group(self.gamespace, group_id)
         except GroupNotFound:
             raise a.ActionError("No such group")
         except GroupError as e:
@@ -161,9 +152,8 @@ class GroupsController(a.AdminController):
 
         raise a.Redirect("group", group_id=group.group_id)
 
-    @coroutine
     @validate(group_class="str", group_key="str")
-    def search_class(self, group_class, group_key=None):
+    async def search_class(self, group_class, group_key=None):
 
         if not group_key:
             raise a.Redirect("groups_by_class", group_class=group_class)
@@ -171,7 +161,7 @@ class GroupsController(a.AdminController):
         groups = self.application.groups
 
         try:
-            group = yield groups.find_group(self.gamespace, group_class, group_key)
+            group = await groups.find_group(self.gamespace, group_class, group_key)
         except GroupNotFound:
             raise a.ActionError("No such group")
         except GroupError as e:
@@ -199,20 +189,19 @@ class FindGroupsByClassController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(group_class="str")
-    def get(self, group_class):
+    async def get(self, group_class):
 
         groups = self.application.groups
 
         try:
-            groups = yield groups.list_groups(self.gamespace, group_class)
+            groups = await groups.list_groups(self.gamespace, group_class)
         except GroupError as e:
             raise a.ActionError("Failed to list groups:" + e.message)
 
-        raise Return({
+        return {
             "groups": groups
-        })
+        }
 
 
 class NewGroupController(a.AdminController):
@@ -234,23 +223,21 @@ class NewGroupController(a.AdminController):
             ])
         ]
 
-    @coroutine
-    def get(self, **context):
-        raise Return({
+    async def get(self, **context):
+        return {
             "clustered": "false",
             "cluster_size": 1000
-        })
+        }
 
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(group_class="str", group_key="str", cluster_size="int", clustered="bool")
-    def create(self, group_class, group_key, cluster_size,  clustered=False):
+    async def create(self, group_class, group_key, cluster_size, clustered=False):
         groups = self.application.groups
 
         try:
-            group_id = yield groups.new_group(
+            group_id = await groups.new_group(
                 self.gamespace,
                 group_class,
                 group_key,
@@ -289,20 +276,19 @@ class AddGroupParticipantController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(account="int", role="str_name")
-    def create(self, account, role):
+    async def create(self, account, role):
         groups = self.application.groups
 
         group_id = self.context.get("group_id")
 
         try:
-            group = yield groups.get_group(self.gamespace, group_id)
+            group = await groups.get_group(self.gamespace, group_id)
         except GroupNotFound:
             raise a.ActionError("No such group")
 
         try:
-            participation = yield groups.join_group(self.gamespace, group, account, role)
+            participation = await groups.join_group(self.gamespace, group, account, role)
         except UserAlreadyJoined:
             raise a.ActionError("Such user is already in a group")
         except GroupError as e:
@@ -332,27 +318,25 @@ class AddUserParticipantController(a.AdminController):
             ])
         ]
 
-    @coroutine
-    def get(self, account):
-        raise Return({})
+    async def get(self, account):
+        return {}
 
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(group_id="int", role="str_name")
-    def create(self, group_id, role):
+    async def create(self, group_id, role):
         groups = self.application.groups
 
         account = self.context.get("account")
 
         try:
-            group = yield groups.get_group(self.gamespace, group_id)
+            group = await groups.get_group(self.gamespace, group_id)
         except GroupNotFound:
             raise a.ActionError("No such group")
 
         try:
-            participation = yield groups.join_group(self.gamespace, group, account, role)
+            participation = await groups.join_group(self.gamespace, group, account, role)
         except UserAlreadyJoined:
             raise a.ActionError("Such user is already in a group")
         except GroupError as e:
@@ -389,30 +373,28 @@ class GroupParticipantController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(participation_id="int")
-    def get(self, participation_id):
+    async def get(self, participation_id):
         groups = self.application.groups
 
         try:
-            participation = yield groups.get_group_participation(self.gamespace, participation_id)
+            participation = await groups.get_group_participation(self.gamespace, participation_id)
         except GroupParticipantNotFound:
             raise a.ActionError("No such participation")
 
-        raise Return({
+        return {
             "participation": participation,
             "account": participation.account,
             "role": participation.role
-        })
+        }
 
-    @coroutine
     @validate(role="str_name")
-    def update(self, role, **ignored):
+    async def update(self, role, **ignored):
         groups = self.application.groups
         participation_id = self.context.get("participation_id")
 
         try:
-            yield groups.updated_group_participation(self.gamespace, participation_id, role)
+            await groups.updated_group_participation(self.gamespace, participation_id, role)
         except GroupError as e:
             raise a.ActionError("Failed to update a group participation:" + e.message)
 
@@ -421,23 +403,22 @@ class GroupParticipantController(a.AdminController):
             message="A group participation has been updated",
             participation_id=participation_id)
 
-    @coroutine
-    def leave(self, **ignored):
+    async def leave(self, **ignored):
         groups = self.application.groups
         participation_id = self.context.get("participation_id")
 
         try:
-            participation = yield groups.get_group_participation(self.gamespace, participation_id)
+            participation = await groups.get_group_participation(self.gamespace, participation_id)
         except GroupParticipantNotFound:
             raise a.ActionError("No such participation")
 
         try:
-            group = yield groups.get_group(self.gamespace, participation.group_id)
+            group = await groups.get_group(self.gamespace, participation.group_id)
         except GroupNotFound:
             raise a.ActionError("No such group")
 
         try:
-            yield groups.leave_group(self.gamespace, group, participation.account, authoritative=True)
+            await groups.leave_group(self.gamespace, group, participation.account, authoritative=True)
         except GroupError as e:
             raise a.ActionError("Failed to leave a group:" + e.message)
 
@@ -463,12 +444,14 @@ class GroupController(a.AdminController):
                 "delete": a.method("Delete", "danger")
             }, data=data),
             a.links("Group participants", links=[
-                a.link("group_participation", "@" + str(user.account), icon="user", badge=user.role,
-                       participation_id=user.participation_id)
-                for user in data["participants"]
-            ] + [
-                a.link("add_group_participation", "New participant", icon="plus", group_id=self.context.get("group_id"))
-            ]),
+                                                    a.link("group_participation", "@" + str(user.account), icon="user",
+                                                           badge=user.role,
+                                                           participation_id=user.participation_id)
+                                                    for user in data["participants"]
+                                                ] + [
+                                                    a.link("add_group_participation", "New participant", icon="plus",
+                                                           group_id=self.context.get("group_id"))
+                                                ]),
             a.links("Navigate", [
                 a.link("groups", "Go back", icon="chevron-left"),
                 a.link("history", "See messages in the group", icon="history",
@@ -482,39 +465,37 @@ class GroupController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(group_id="int")
-    def get(self, group_id):
+    async def get(self, group_id):
         groups = self.application.groups
 
         try:
-            group = yield groups.get_group(self.gamespace, group_id)
+            group = await groups.get_group(self.gamespace, group_id)
         except GroupNotFound:
             raise a.ActionError("No such group")
         except GroupError as e:
             raise a.ActionError(e.message)
 
         try:
-            participants = yield groups.list_group_participants(self.gamespace, group_id)
+            participants = await groups.list_group_participants(self.gamespace, group_id)
         except GroupError as e:
             raise a.ActionError(e.message)
 
-        raise Return({
+        return {
             "group_class": group.group_class,
             "group_key": group.key,
             "clustered": "true" if group.clustered else "false",
             "cluster_size": group.cluster_size,
             "participants": participants
-        })
+        }
 
-    @coroutine
     @validate(group_class="str", group_key="str", cluster_size="int")
-    def update(self, group_class, group_key, cluster_size, **ignored):
+    async def update(self, group_class, group_key, cluster_size, **ignored):
         groups = self.application.groups
         group_id = self.context.get("group_id")
 
         try:
-            yield groups.update_group(
+            await groups.update_group(
                 self.gamespace,
                 group_id,
                 group_class,
@@ -528,18 +509,17 @@ class GroupController(a.AdminController):
             message="A group has been updated",
             group_id=group_id)
 
-    @coroutine
-    def delete(self, **ignored):
+    async def delete(self, **ignored):
         groups = self.application.groups
         group_id = self.context.get("group_id")
 
         try:
-            group = yield groups.get_group(self.gamespace, group_id)
+            group = await groups.get_group(self.gamespace, group_id)
         except GroupNotFound:
             raise a.ActionError("No such group")
 
         try:
-            yield groups.delete_group(self.gamespace, group)
+            await groups.delete_group(self.gamespace, group)
         except GroupError as e:
             raise a.ActionError("Failed to delete a group:" + e.message)
 
@@ -578,15 +558,14 @@ class MessagesStreamController(a.StreamAdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
-    def prepared(self, account):
+    async def prepared(self, account):
         online = self.application.online
-        account_id = common.to_int(account)
+        account_id = to_int(account)
 
         if not account_id:
             raise a.ActionError("Bad account")
 
-        self.conversation = yield online.conversation(self.gamespace, account_id)
+        self.conversation = await online.conversation(self.gamespace, account_id)
         self.conversation.set_on_message(self._on_message)
         self.conversation.set_on_deleted(self._on_message_deleted)
         self.conversation.set_on_updated(self._on_message_updated)
@@ -594,11 +573,10 @@ class MessagesStreamController(a.StreamAdminController):
 
         logging.debug("Exchange has been opened!")
 
-    @coroutine
-    def _on_message(self, gamespace_id, message_id, sender,
-                    recipient_class, recipient_key, message_type, payload, time, flags):
+    async def _on_message(self, gamespace_id, message_id, sender,
+                          recipient_class, recipient_key, message_type, payload, time, flags):
         try:
-            result = yield self.send_request(
+            result = await self.send_request(
                 self,
                 "message",
                 gamespace_id=gamespace_id,
@@ -611,28 +589,26 @@ class MessagesStreamController(a.StreamAdminController):
                 time=str(time),
                 flags=flags)
         except JsonRPCError:
-            raise Return(False)
+            return False
 
-        raise Return(result)
+        return result
 
-    @coroutine
-    def _on_message_deleted(self, gamespace_id, message_id, sender):
+    async def _on_message_deleted(self, gamespace_id, message_id, sender):
         try:
-            result = yield self.send_request(
+            result = await self.send_request(
                 self,
                 "message_deleted",
                 gamespace_id=gamespace_id,
                 sender=sender,
                 message_id=message_id)
         except JsonRPCError:
-            raise Return(False)
+            return False
 
-        raise Return(result)
+        return result
 
-    @coroutine
-    def _on_message_updated(self, gamespace_id, message_id, sender, payload):
+    async def _on_message_updated(self, gamespace_id, message_id, sender, payload):
         try:
-            result = yield self.send_request(
+            result = await self.send_request(
                 self,
                 "message_updated",
                 gamespace_id=gamespace_id,
@@ -640,9 +616,9 @@ class MessagesStreamController(a.StreamAdminController):
                 message_id=message_id,
                 payload=payload)
         except JsonRPCError:
-            raise Return(False)
+            return False
 
-        raise Return(result)
+        return result
 
     @validate(recipient_class="str", recipient_key="str", sender="int",
               message_type="str", message="load_json", flags="json_list_of_strings")
@@ -661,15 +637,14 @@ class MessagesStreamController(a.StreamAdminController):
             MessageFlags(flags),
             authoritative=True)
 
-    @coroutine
     @validate(message_id="str", sender="int")
-    def delete_message(self, message_id, sender):
+    async def delete_message(self, message_id, sender):
 
         gamespace_id = self.gamespace
         history = self.application.history
 
         try:
-            yield history.delete_message_concurrent(
+            await history.delete_message_concurrent(
                 gamespace_id,
                 sender,
                 message_id)
@@ -678,15 +653,14 @@ class MessagesStreamController(a.StreamAdminController):
         except MessageError as e:
             raise a.StreamCommandError(e.code, e.message)
 
-    @coroutine
     @validate(message_id="str", sender="int", payload="json_dict")
-    def update_message(self, message_id, sender, payload):
+    async def update_message(self, message_id, sender, payload):
 
         gamespace_id = self.gamespace
         history = self.application.history
 
         try:
-            result = yield history.update_message_concurrent(
+            result = await history.update_message_concurrent(
                 gamespace_id,
                 sender,
                 message_id,
@@ -696,21 +670,18 @@ class MessagesStreamController(a.StreamAdminController):
         except MessageError as e:
             raise a.StreamCommandError(e.code, e.message)
 
-        raise Return(result)
+        return result
 
-    @coroutine
-    def on_opened(self, **kwargs):
+    async def on_opened(self, **kwargs):
         pass
 
-    @coroutine
-    def on_closed(self):
+    async def on_closed(self):
         if self.conversation:
-            yield self.conversation.release()
+            await self.conversation.release()
             self.conversation = None
 
 
 class MessagesHistoryController(a.AdminController):
-
     MESSAGES_PER_PAGE = 20
 
     def render(self, data):
@@ -778,8 +749,7 @@ class MessagesHistoryController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
-    def filter(self, **args):
+    async def filter(self, **args):
 
         page = self.context.get("page", 1)
 
@@ -788,21 +758,20 @@ class MessagesHistoryController(a.AdminController):
         }
 
         filters.update({
-            k: v for k, v in args.iteritems() if v
+            k: v for k, v in args.items() if v
         })
 
         raise a.Redirect("history", **filters)
 
-    @coroutine
     @validate(page="int", message_sender="int", message_recipient_class="str",
               message_recipient="str", message_type="str", message_delivered="int")
-    def get(self,
-            page=1,
-            message_sender=None,
-            message_recipient_class=None,
-            message_recipient=None,
-            message_type=None,
-            message_delivered=None):
+    async def get(self,
+                  page=1,
+                  message_sender=None,
+                  message_recipient_class=None,
+                  message_recipient=None,
+                  message_type=None,
+                  message_delivered=None):
 
         page = to_int(page)
 
@@ -812,7 +781,7 @@ class MessagesHistoryController(a.AdminController):
 
             q = history.messages_query(self.gamespace)
 
-            q.offset = (page-1) * MessagesHistoryController.MESSAGES_PER_PAGE
+            q.offset = (page - 1) * MessagesHistoryController.MESSAGES_PER_PAGE
             q.limit = MessagesHistoryController.MESSAGES_PER_PAGE
             q.message_sender = message_sender
             q.message_recipient_class = message_recipient_class
@@ -822,12 +791,12 @@ class MessagesHistoryController(a.AdminController):
             if message_delivered:
                 q.message_delivered = message_delivered == "yes"
 
-            messages, count = yield q.query(count=True)
+            messages, count = await q.query(count=True)
             pages = int(math.ceil(float(count) / float(MessagesHistoryController.MESSAGES_PER_PAGE)))
         else:
             messages, pages = [], 0
 
-        raise Return({
+        return {
             "messages": messages,
             "pages": pages,
             "message_sender": message_sender,
@@ -840,11 +809,10 @@ class MessagesHistoryController(a.AdminController):
                 "yes": "Yes",
                 "no": "No"
             }
-        })
+        }
 
 
 class UserMessagesController(a.AdminController):
-
     MESSAGES_PER_PAGE = 20
 
     def render(self, data):
@@ -904,21 +872,19 @@ class UserMessagesController(a.AdminController):
     def access_scopes(self):
         return ["message_admin"]
 
-    @coroutine
     @validate(account_id="int", page="int")
-    def get(self, account_id, page=1):
-
+    async def get(self, account_id, page=1):
         history = self.application.history
 
         offset = (page - 1) * UserMessagesController.MESSAGES_PER_PAGE
 
-        messages, count = yield history.list_messages_account_with_count(
+        messages, count = await history.list_messages_account_with_count(
             gamespace=self.gamespace, account_id=account_id,
             limit=UserMessagesController.MESSAGES_PER_PAGE, offset=offset)
 
         pages = int(math.ceil(float(count) / float(UserMessagesController.MESSAGES_PER_PAGE)))
 
-        raise Return({
+        return {
             "messages": messages,
             "pages": pages
-        })
+        }
