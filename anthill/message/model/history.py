@@ -293,8 +293,7 @@ class MessagesHistoryModel(Model):
             raise MessageError(500, "Failed to count found rows for account messages: " + e.args[1])
 
         count_result = count_result["count"]
-        result = (messages, count_result)
-        return result
+        return messages, count_result
 
     @validate(gamespace="int", account_id="int", recipient_account_id="int", limit="int", offset="int")
     async def list_messages_recipient_count(self, gamespace, account_id, recipient_account_id, limit=100, offset=0):

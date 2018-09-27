@@ -157,7 +157,7 @@ class AccountConversation(object):
 
         if self.receive_channel:
             try:
-                await self.receive_channel.close()
+                self.receive_channel.close()
             except Exception:
                 logging.exception("Failed to close the channel")
 
