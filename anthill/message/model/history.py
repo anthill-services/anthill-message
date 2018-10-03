@@ -380,7 +380,7 @@ class MessagesHistoryModel(Model):
         except DatabaseError as e:
             raise MessageError(500, "Failed to list incoming messages for account: " + e.args[1])
 
-        return map(MessageAdapter, messages)
+        return list(map(MessageAdapter, messages))
 
     async def read_incoming_messages(self, gamespace, recipient_class, recipient, receiver):
         try:
