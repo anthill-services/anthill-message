@@ -7,6 +7,9 @@ DEPENDENCIES = [
 
 setup(
     name='anthill-message',
+    package_data={
+      "anthill.message": ["anthill/message/sql", "anthill/message/static"]
+    },
     setup_requires=["pypigit-version"],
     git_version="0.1.0",
     description='A messaging service for Anthill platform',
