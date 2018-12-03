@@ -273,7 +273,7 @@ class MessagesHistoryModel(Model):
         except DatabaseError as e:
             raise MessageError(500, "Failed to list incoming messages: " + e.args[1])
 
-        return map(MessageAdapter, messages)
+        return list(map(MessageAdapter, messages))
 
     @validate(gamespace="int", account_id="int", limit="int", offset="int")
     async def list_messages_account_with_count(self, gamespace, account_id, limit=100, offset=0):
@@ -334,7 +334,7 @@ class MessagesHistoryModel(Model):
                 """)
             count_result = count_result["count"]
 
-            return map(MessageAdapter, messages), count_result
+            return list(map(MessageAdapter, messages)), count_result
 
     @validate(gamespace="int", account_id="int", limit="int", offset="int")
     async def list_messages_account(self, gamespace, account_id, limit=100, offset=0, db=None):
@@ -556,7 +556,7 @@ class MessagesHistoryModel(Model):
         except DatabaseError as e:
             raise MessageError(500, "Failed to get a message: " + e.args[1])
 
-        return map(LastReadMessageAdapter, read_messages)
+        return list(map(LastReadMessageAdapter, read_messages))
 
     async def get_message_uuid(self, gamespace, message_uuid):
         try:

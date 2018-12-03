@@ -92,7 +92,7 @@ class MessagesQueueModel(Model):
         if self.channel:
             # noinspection PyBroadException
             try:
-                await self.channel.close()
+                self.channel.close()
             except:
                 pass
 
@@ -215,21 +215,21 @@ class MessagesQueueModel(Model):
 
             def delivered_(m):
                 import pika
-                if f.running():
+                if not f.done():
                     if not isinstance(m.method, pika.spec.Basic.Ack):
                         cancel_handle()
                         f.set_result(False)
 
             def closed(ch, reason, param):
-                if f.running():
+                if not f.done():
                     cancel_handle()
                     f.set_result(False)
 
             # add the future to the handles in case callback_queue will bring something
             self.handle_futures[message_uuid] = f
 
-            await channel.confirm_delivery(delivered_)
-            await channel.add_on_close_callback(closed)
+            channel.confirm_delivery(delivered_)
+            channel.add_on_close_callback(closed)
 
             from pika import BasicProperties
 
@@ -243,7 +243,7 @@ class MessagesQueueModel(Model):
                     AccountConversation.TYPE: message_type
                 })
 
-            await channel.basic_publish(
+            channel.basic_publish(
                 exchange_id,
                 '',
                 dumped,
@@ -259,7 +259,7 @@ class MessagesQueueModel(Model):
                 delivered = False
         finally:
             if channel.is_open:
-                await channel.close()
+                channel.close()
 
         logging.debug("Message '{0}' {1} been delivered.".format(message_uuid, "has" if delivered else "has not"))
 
@@ -307,7 +307,7 @@ class MessagesQueueModel(Model):
                     return True
 
                 try:
-                    await channel.basic_publish(
+                    channel.basic_publish(
                         '',
                         self.message_incoming_queue_name,
                         body,
@@ -323,7 +323,7 @@ class MessagesQueueModel(Model):
                 if not success:
                     return False
         finally:
-            await channel.close()
+            channel.close()
 
     @validate(gamespace="int", sender="int", messages="json_list", authoritative="bool")
     async def add_messages(self, gamespace, sender, messages, authoritative=False):
@@ -460,17 +460,17 @@ class MessagesQueueModel(Model):
 
             def delivered_(m):
                 import pika
-                if f.running():
+                if not f.done():
                     f.set_result(isinstance(m.method, pika.spec.Basic.Ack))
 
             def closed(ch, reason, param):
-                if f.running():
+                if not f.done():
                     f.set_result(False)
 
-            await channel.confirm_delivery(delivered_)
-            await channel.add_on_close_callback(closed)
+            channel.confirm_delivery(delivered_)
+            channel.add_on_close_callback(closed)
 
-            await channel.basic_publish(
+            channel.basic_publish(
                 '',
                 self.message_incoming_queue_name,
                 body,
@@ -482,6 +482,6 @@ class MessagesQueueModel(Model):
             logging.exception("Failed to public message.")
             result = False
         finally:
-            await channel.close()
+            channel.close()
 
         return result

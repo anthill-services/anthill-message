@@ -167,7 +167,7 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list groups: " + e.args[1])
 
-        return map(GroupAdapter, groups)
+        return list(map(GroupAdapter, groups))
 
     @validate(gamespace_id="int", group=GroupAdapter)
     async def delete_group(self, gamespace_id, group):
@@ -332,7 +332,7 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list group participants: " + e.args[1])
 
-        return map(GroupParticipationAdapter, participants)
+        return list(map(GroupParticipationAdapter, participants))
 
     @validate(gamespace="int", account_id="int")
     async def list_groups_account_participates(self, gamespace, account_id):
@@ -348,7 +348,7 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list group account participate: " + e.args[1])
 
-        return map(GroupAndParticipationAdapter, groups)
+        return list(map(GroupAndParticipationAdapter, groups))
 
     @validate(gamespace="int", account_id="int")
     async def list_participants_by_account(self, gamespace, account_id):
@@ -362,7 +362,7 @@ class GroupsModel(Model):
         except DatabaseError as e:
             raise GroupError(500, "Failed to list group account participate: " + e.args[1])
 
-        return map(GroupParticipationAdapter, participants)
+        return list(map(GroupParticipationAdapter, participants))
 
 
 class GroupNotFound(Exception):

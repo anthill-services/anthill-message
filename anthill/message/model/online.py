@@ -85,4 +85,4 @@ class OnlineModel(Model):
 
             await account_online.bind(exchange=group_exchange)
         finally:
-            await channel.close()
+            channel.close()
