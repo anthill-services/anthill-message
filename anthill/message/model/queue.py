@@ -282,20 +282,18 @@ class MessagesQueueModel(Model):
         def delivered_(m):
             import pika
             f = wrapped.future
-            if not f:
+            if not f or f.done():
                 return
-            if f.running():
-                f.set_result(isinstance(m.method, pika.spec.Basic.Ack))
+            f.set_result(isinstance(m.method, pika.spec.Basic.Ack))
 
         def closed(ch, reason, param):
             f = wrapped.future
-            if not f:
+            if not f or f.done():
                 return
-            if f.running():
-                f.set_result(False)
+            f.set_result(False)
 
-        await channel.confirm_delivery(delivered_)
-        await channel.add_on_close_callback(closed)
+        channel.confirm_delivery(delivered_)
+        channel.add_on_close_callback(closed)
 
         try:
             while True:
