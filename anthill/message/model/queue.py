@@ -17,6 +17,7 @@ import ujson
 import uuid
 import datetime
 import pytz
+import pika
 
 from pika import BasicProperties
 
@@ -109,10 +110,10 @@ class MessagesQueueModel(Model):
 
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
-    async def __on_callback__(self, channel, method, properties, body):
+    def __on_callback__(self, channel, method, properties, body):
 
         message_uuid = properties.correlation_id
-        delivered = body == 'true'
+        delivered = body == b'true'
 
         try:
             f = self.handle_futures.pop(message_uuid)
@@ -214,7 +215,6 @@ class MessagesQueueModel(Model):
                     pass
 
             def delivered_(m):
-                import pika
                 if not f.done():
                     if not isinstance(m.method, pika.spec.Basic.Ack):
                         cancel_handle()

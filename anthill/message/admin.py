@@ -534,7 +534,7 @@ class MessagesController(a.AdminController):
             a.breadcrumbs([
                 a.link("users", "Messages")
             ], "User @" + self.context.get("account")),
-            a.script("static/admin/messages.js",
+            a.script(self.application.module_path("static/admin/messages.js"),
                      account=self.context.get("account")),
             a.links("Navigate", [
                 a.link("users", "Go back", icon="chevron-left"),
