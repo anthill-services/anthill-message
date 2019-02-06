@@ -410,12 +410,13 @@ class MessagesQueueModel(Model):
 
         return self.__enqueue_message__(message)
 
-    @validate(gamespace="int", sender="int", recipient_class="str",
+    @validate(gamespace="int", sender="int", message_type="str", recipient_class="str",
               recipient_key="str", message_uuid="str")
-    def delete_message(self, gamespace, sender, recipient_class, recipient_key, message_uuid):
+    def delete_message(self, gamespace, sender, message_type, recipient_class, recipient_key, message_uuid):
 
         message = {
             AccountConversation.ACTION: AccountConversation.ACTION_MESSAGE_DELETED,
+            AccountConversation.TYPE: message_type,
             AccountConversation.GAMESPACE: gamespace,
             AccountConversation.MESSAGE_UUID: message_uuid,
             AccountConversation.SENDER: sender,
@@ -425,12 +426,13 @@ class MessagesQueueModel(Model):
 
         return self.__enqueue_message__(message)
 
-    @validate(gamespace="int", sender="int", recipient_class="str",
+    @validate(gamespace="int", sender="int", message_type="str", recipient_class="str",
               recipient_key="str", message_uuid="str", payload="json_dict")
-    def update_message(self, gamespace, sender, recipient_class, recipient_key, message_uuid, payload):
+    def update_message(self, gamespace, sender, message_type, recipient_class, recipient_key, message_uuid, payload):
 
         message = {
             AccountConversation.ACTION: AccountConversation.ACTION_MESSAGE_UPDATED,
+            AccountConversation.TYPE: message_type,
             AccountConversation.GAMESPACE: gamespace,
             AccountConversation.MESSAGE_UUID: message_uuid,
             AccountConversation.SENDER: sender,

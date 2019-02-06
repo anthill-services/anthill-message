@@ -462,7 +462,8 @@ class MessagesHistoryModel(Model):
             try:
                 message = await db.get(
                     """
-                        SELECT `message_recipient_class`, `message_recipient`, `message_flags`, `message_sender`
+                        SELECT `message_recipient_class`, `message_recipient`, `message_flags`, `message_sender`,
+                            `message_type`
                         FROM `messages`
                         WHERE `message_uuid`=%s AND `gamespace_id`=%s
                         LIMIT 1
@@ -481,9 +482,10 @@ class MessagesHistoryModel(Model):
 
                 message_recipient_class = message["message_recipient_class"]
                 message_recipient = message["message_recipient"]
+                message_type = message["message_type"]
 
                 await self.app.message_queue.delete_message(
-                    gamespace, sender, message_recipient_class, message_recipient, message_uuid)
+                    gamespace, sender, message_type, message_recipient_class, message_recipient, message_uuid)
 
                 await db.execute(
                     """
@@ -503,7 +505,7 @@ class MessagesHistoryModel(Model):
                 message = await db.get(
                     """
                         SELECT `message_recipient_class`, `message_recipient`, `message_payload`, 
-                            `message_flags`, `message_sender`
+                            `message_flags`, `message_sender`, `message_type`
                         FROM `messages`
                         WHERE `message_uuid`=%s AND `gamespace_id`=%s
                         LIMIT 1
@@ -523,6 +525,7 @@ class MessagesHistoryModel(Model):
                 message_recipient_class = message["message_recipient_class"]
                 message_recipient = message["message_recipient"]
                 message_payload = message["message_payload"]
+                message_type = message["message_type"]
 
                 try:
                     updated = Profile.merge_data(message_payload, update, None, merge=True)
@@ -530,7 +533,8 @@ class MessagesHistoryModel(Model):
                     raise MessageError(400, e.message)
 
                 await self.app.message_queue.update_message(
-                    gamespace, sender, message_recipient_class, message_recipient, message_uuid, updated)
+                    gamespace, sender, message_type, message_recipient_class,
+                    message_recipient, message_uuid, updated)
 
                 await db.execute(
                     """
