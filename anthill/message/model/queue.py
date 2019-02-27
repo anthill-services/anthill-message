@@ -1,5 +1,5 @@
 
-from tornado.gen import Future, with_timeout, TimeoutError
+from tornado.gen import Future, with_timeout, TimeoutError, convert_yielded
 from tornado.queues import Queue, QueueEmpty
 from tornado.ioloop import IOLoop
 
@@ -9,7 +9,7 @@ from anthill.common.options import options
 from anthill.common.validate import validate
 from anthill.common.access import utc_time
 
-from . import MessageSendError
+from . import MessageSendError, MessageError
 from . conversation import AccountConversation, MessageFlags
 
 import logging
@@ -23,8 +23,9 @@ from pika import BasicProperties
 
 
 class MessagesQueueError(Exception):
-    def __init__(self, message):
+    def __init__(self, message, requeue):
         self.message = message
+        self.requeue = requeue
 
 
 class MessagesQueueModel(Model):
@@ -104,11 +105,26 @@ class MessagesQueueModel(Model):
 
     def __on_message__(self, channel, method, properties, body):
         try:
-            self.__process__(channel, method, properties, body)
+            coroutine = self.__process__(channel, method, properties, body)
         except MessagesQueueError as e:
             logging.error("Failed to process incoming message: " + e.message)
+            channel.basic_nack(delivery_tag=method.delivery_tag)
+            return
 
-        channel.basic_ack(delivery_tag=method.delivery_tag)
+        f = convert_yielded(coroutine)
+
+        def process_callback(f):
+            exc = f.exception()
+            if exc:
+                logging.error("Failed to process incoming message: " + str(exc))
+                if isinstance(exc, MessagesQueueError):
+                    channel.basic_nack(delivery_tag=method.delivery_tag, requeue=exc.requeue)
+                else:
+                    channel.basic_nack(delivery_tag=method.delivery_tag)
+            else:
+                channel.basic_ack(delivery_tag=method.delivery_tag)
+
+        IOLoop.current().add_future(f, process_callback)
 
     def __on_callback__(self, channel, method, properties, body):
 
@@ -122,11 +138,11 @@ class MessagesQueueModel(Model):
         else:
             f.set_result(delivered)
 
-    def __process__(self, channel, method, properties, body):
+    async def __process__(self, channel, method, properties, body):
         try:
             message = ujson.loads(body)
         except (KeyError, ValueError):
-            raise MessagesQueueError("Corrupted body")
+            raise MessagesQueueError("Corrupted body", False)
 
         try:
             action = message[AccountConversation.ACTION]
@@ -135,21 +151,17 @@ class MessagesQueueModel(Model):
             recipient_class = message[AccountConversation.RECIPIENT_CLASS]
             recipient_key = message[AccountConversation.RECIPIENT_KEY]
         except KeyError as e:
-            raise MessagesQueueError("Missing field: " + e.args[0])
+            raise MessagesQueueError("Missing field: " + e.args[0], False)
 
         action_method = self.actions.get(action, self.__action_simple_deliver__)
-
-        if action_method:
-            IOLoop.current().spawn_callback(
-                action_method, gamespace_id, sender,
-                recipient_class, recipient_key, message)
+        await action_method(gamespace_id, sender, recipient_class, recipient_key, message)
 
     def __action_simple_deliver__(self, gamespace_id, sender, recipient_class, recipient_key, message):
         try:
             message_uuid = message[AccountConversation.MESSAGE_UUID]
             message_type = message[AccountConversation.TYPE]
         except KeyError as e:
-            raise MessagesQueueError("Missing field: " + e.args[0])
+            raise MessagesQueueError("Missing field: " + e.args[0], False)
 
         return self.__deliver_message__(message_uuid, message_type, recipient_class, recipient_key, message)
 
@@ -161,7 +173,7 @@ class MessagesQueueModel(Model):
             payload = message[AccountConversation.PAYLOAD]
             time = message[AccountConversation.TIME]
         except KeyError as e:
-            raise MessagesQueueError("Missing field: " + e.args[0])
+            raise MessagesQueueError("Missing field: " + e.args[0], False)
 
         # noinspection PyBroadException
         try:
@@ -182,17 +194,20 @@ class MessagesQueueModel(Model):
         if delivered and (MessageFlags.REMOVE_DELIVERED in flags):
             return delivered
 
-        await history.add_message(
-            gamespace_id,
-            sender,
-            message_uuid,
-            str(recipient_class),
-            str(recipient_key),
-            datetime.datetime.fromtimestamp(time, tz=pytz.utc),
-            message_type,
-            payload,
-            flags,
-            delivered=delivered)
+        try:
+            await history.add_message(
+                gamespace_id,
+                sender,
+                message_uuid,
+                str(recipient_class),
+                str(recipient_key),
+                datetime.datetime.fromtimestamp(time, tz=pytz.utc),
+                message_type,
+                payload,
+                flags,
+                delivered=delivered)
+        except MessageError as e:
+            raise MessagesQueueError(e.message, e.code >= 500)
 
         return delivered
 

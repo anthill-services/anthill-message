@@ -1,6 +1,6 @@
 
 from anthill.common.model import Model
-from anthill.common.database import DatabaseError
+from anthill.common.database import DatabaseError, DuplicateError
 from anthill.common.validate import validate
 from anthill.common.profile import Profile, ProfileError
 
@@ -223,8 +223,8 @@ class MessagesHistoryModel(Model):
     @validate(gamespace="int", sender="int", message_uuid="str", recipient_class="str",
               recipient_key="str", time="datetime", message_type="str", payload="json",
               flags=MessageFlags, delivered="bool")
-    async def add_message(self, gamespace, sender, message_uuid, recipient_class,
-                    recipient_key, time, message_type, payload, flags, delivered=False):
+    async def add_message(self, gamespace, sender, message_uuid, recipient_class, recipient_key, time,
+                          message_type, payload, flags, delivered=False):
 
         if not isinstance(payload, dict):
             raise MessageError(400, "payload should be a dict")
@@ -239,6 +239,8 @@ class MessagesHistoryModel(Model):
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """, gamespace, message_uuid, recipient_class, sender,
                 recipient_key, time, message_type, ujson.dumps(payload), int(delivered), flags.dump())
+        except DuplicateError:
+            raise MessageError(400, "Message with that ID already exists")
         except DatabaseError as e:
             raise MessageError(500, "Failed to add message: " + e.args[1])
         else:
