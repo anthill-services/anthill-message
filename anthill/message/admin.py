@@ -569,7 +569,7 @@ class MessagesStreamController(a.StreamAdminController):
         self.conversation.set_on_message(self._on_message)
         self.conversation.set_on_deleted(self._on_message_deleted)
         self.conversation.set_on_updated(self._on_message_updated)
-        self.conversation.init()
+        await self.conversation.init()
 
         logging.debug("Exchange has been opened!")
 

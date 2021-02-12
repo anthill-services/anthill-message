@@ -10,7 +10,7 @@ setup(
     package_data={
       "anthill.message": ["anthill/message/sql", "anthill/message/static"]
     },
-    version='0.2',
+    version='0.2.1',
     description='A messaging service for Anthill platform',
     author='desertkun',
     license='MIT',
